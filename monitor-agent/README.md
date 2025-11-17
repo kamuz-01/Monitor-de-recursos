@@ -74,12 +74,12 @@ monitor/
 │   │   ├── css/dashboard.css
 │   │   └── js/dashboard.js
 │   ├── manage.py
-│   ├── requirements.txt
+│   └── requirements.txt
 │
 ├── monitor-agent/                  # Agente de coleta
 │   ├── agent.py
 │   ├── requirements.txt
-│   ├── .env.example
+│   └── .env.example
 │
 └── README.md                        # Este arquivo
 ```
