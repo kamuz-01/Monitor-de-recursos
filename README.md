@@ -5,21 +5,6 @@ Serviço leve escrito em Python que coleta métricas locais do sistema (memória
 Este agente pode ser instalado em múltiplos servidores Linux, Windows ou WSL para formar uma rede de monitoramento distribuído.
 
 
-## 📋 Índice
-
-- [Visão Geral](#visão-geral)
-- [Arquitetura](#arquitetura)
-- [Estrutura do Projeto](#estrutura-do-projeto)
-- [Pré-requisitos](#pré-requisitos)
-- [Instalação](#instalação)
-  - [PostgreSQL 12 + TimescaleDB](#postgresql-12--timescaledb)
-  - [Monitor API](#monitor-api)
-  - [Monitor Agent](#monitor-agent)
-- [Configuração](#configuração)
-- [Execução](#execução)
-- [Endpoints da API](#endpoints-da-api)
-- [Troubleshooting](#troubleshooting)
-
 ## 🎯 Visão Geral
 
 **Monitor de Recursos** é um sistema que coleta métricas de múltiplos servidores através de agentes distribuídos e as exibe em um dashboard centralizado.
