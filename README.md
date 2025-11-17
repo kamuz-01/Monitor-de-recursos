@@ -1,13 +1,8 @@
 # Monitor de Recursos 📊
 
-Serviço leve escrito em Python que coleta métricas locais do sistema (memória ram e disco) e envia periodicamente para uma API REST centralizada para armazenamento e monitoramento em tempo real.
+Serviço leve escrito em Python que coleta métricas locais do sistema (memória ram e disco) e envia periodicamente para uma API REST centralizada para armazenamento e monitoramento em tempo real e exibí-la um dashboard centralizado.
 
 Este agente pode ser instalado em múltiplos servidores Linux, Windows ou WSL para formar uma rede de monitoramento distribuído.
-
-
-## 🎯 Visão Geral
-
-**Monitor de Recursos** é um sistema que coleta métricas de múltiplos servidores através de agentes distribuídos e as exibe em um dashboard centralizado.
 
 **Componentes:**
 - **Monitor API**: Backend Django REST que armazena e recupera dados
