@@ -75,13 +75,11 @@ monitor/
 │   │   └── js/dashboard.js
 │   ├── manage.py
 │   ├── requirements.txt
-│   └── README.md
 │
 ├── monitor-agent/                  # Agente de coleta
 │   ├── agent.py
 │   ├── requirements.txt
 │   ├── .env.example
-│   └── README.md
 │
 └── README.md                        # Este arquivo
 ```
