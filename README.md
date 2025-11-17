@@ -19,8 +19,8 @@ Este agente pode ser instalado em múltiplos servidores Linux, Windows ou WSL pa
 ```
                      
 ┌─────────────────┐        ┌──────────────────┐        ┌──────────────────┐        ┌──────────────────┐
-│     monitor-    │ ────▶ │   Monitor API    │  ────▶ │ PostgreSQL +     │ ────▶ │   Dashboard      │
-│      agent      │        │   Django REST    │        │ TimescaleDB      │        │   (Browser)      │
+│     monitor-    │ ────▶ │   Monitor API    │  ────▶ │   PostgreSQL +   │ ────▶ │    Dashboard     │
+│      agent      │        │   Django REST    │        │   TimescaleDB    │        │    (Browser)     │
 └─────────────────┘        └──────────────────┘        └──────────────────┘        └──────────────────┘
                           
 ```
