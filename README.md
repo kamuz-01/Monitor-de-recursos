@@ -4,7 +4,7 @@ Serviço leve escrito em Python que coleta métricas locais do sistema (memória
 
 Este agente pode ser instalado em múltiplos servidores Linux, Windows ou WSL para formar uma rede de monitoramento distribuído.
 
-**Componentes:**
+## 🧩🧩 Componentes
 - **Monitor API**: Backend Django REST que armazena e recupera dados
 - **Monitor Agent**: Script que coleta métricas e envia para a API
 - **Dashboard**: Interface web com gráficos em tempo real
