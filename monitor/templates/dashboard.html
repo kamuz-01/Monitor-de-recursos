@@ -1,0 +1,132 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Monitor de Recursos</title>
+
+    <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+
+        .filters {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .filters label {
+            font-weight: bold;
+            color: #333;
+        }
+
+        .filters select,
+        .filters button {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .filters select {
+            min-width: 150px;
+        }
+
+        .filters button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.3s;
+        }
+
+        .filters button:hover {
+            background-color: #45a049;
+        }
+
+        .filters button.secondary {
+            background-color: #2196F3;
+        }
+
+        .filters button.secondary:hover {
+            background-color: #0b7dda;
+        }
+
+        .chart-container {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .chart-container h2 {
+            margin-top: 0;
+            color: #333;
+            font-size: 18px;
+        }
+
+        canvas {
+            max-height: 400px;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Dashboard de Monitoramento de Recursos</h1>
+
+<div class="filters">
+    <label>Host:</label>
+    <select id="hostSelect"></select>
+
+    <label>Intervalo:</label>
+    <select id="rangeSelect">
+        <option value="1h">Última 1 hora</option>
+        <option value="6h">Últimas 6 horas</option>
+        <option value="24h" selected>Últimas 24 horas</option>
+        <option value="7d">Últimos 7 dias</option>
+    </select>
+
+    <label>Formato:</label>
+    <select id="formatSelect">
+        <option value="json">JSON</option>
+        <option value="csv">CSV</option>
+    </select>
+
+    <button onclick="loadDashboard()">🔄 Atualizar</button>
+    <button class="secondary" onclick="generateReport()">📥 Gerar Relatório</button>
+</div>
+
+<div class="chart-container">
+    <h2>Uso de Memória (%)</h2>
+    <canvas id="memoryChart"></canvas>
+</div>
+
+<div class="chart-container">
+    <h2>Uso de Disco (%)</h2>
+    <canvas id="diskChart"></canvas>
+</div>
+
+<script src="{% static 'js/dashboard.js' %}"></script>
+
+</body>
+</html>

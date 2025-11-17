@@ -1,0 +1,53 @@
+# Ambiente virtual
+venv/
+env/
+ENV/
+.venv
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Configuração local
+.env
+.env.local
+config.local.ini
+
+# Dados
+*.db
+*.sqlite3
+agent_id.txt
+
+# OS
+.DS_Store
+Thumbs.db

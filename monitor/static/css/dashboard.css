@@ -1,0 +1,13 @@
+body {
+    font-family: Arial, sans-serif;
+    padding: 20px;
+}
+
+.filters {
+    margin-bottom: 20px;
+}
+
+select, button {
+    padding: 5px;
+}
+
