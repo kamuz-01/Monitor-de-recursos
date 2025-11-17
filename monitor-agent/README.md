@@ -1,96 +1,334 @@
-# Monitor Agent
+# Monitor de Recursos 📊
 
-Agente de coleta de métricas de sistema que envia dados para a API de Monitoramento.
+Sistema completo de monitoramento de recursos de sistema com API REST centralizada e agentes distribuídos.
 
-## Características
+## 📋 Índice
 
-- ✅ Coleta de Memória ram e Disco
-- ✅ Consolidação de amostras (min, max, avg)
-- ✅ Envio automático para API REST
-- ✅ Identificação única do agente (UUID)
-- ✅ Suporte a múltiplos hosts
-- ✅ Configurável via argumentos CLI
+- [Visão Geral](#visão-geral)
+- [Arquitetura](#arquitetura)
+- [Estrutura do Projeto](#estrutura-do-projeto)
+- [Pré-requisitos](#pré-requisitos)
+- [Instalação](#instalação)
+  - [PostgreSQL 12 + TimescaleDB](#postgresql-12--timescaledb)
+  - [Monitor API](#monitor-api)
+  - [Monitor Agent](#monitor-agent)
+- [Configuração](#configuração)
+- [Execução](#execução)
+- [Endpoints da API](#endpoints-da-api)
+- [Troubleshooting](#troubleshooting)
 
-## Instalação
+## 🎯 Visão Geral
 
-### Pré-requisitos
+**Monitor de Recursos** é um sistema que coleta métricas de múltiplos servidores através de agentes distribuídos e as exibe em um dashboard centralizado.
 
+**Componentes:**
+- **Monitor API**: Backend Django REST que armazena e recupera dados
+- **Monitor Agent**: Script que coleta métricas e envia para a API
+- **Dashboard**: Interface web com gráficos em tempo real
+- **TimescaleDB**: Banco de dados otimizado para séries temporais
+
+**Métricas Coletadas:**
+- Memória RAM (%)
+- Disco (%)
+
+## 🏗️ Arquitetura
+
+```
+                     
+┌─────────────────┐        ┌──────────────────┐
+│     monitor-    │ ────▶ │   Monitor API    │
+│      agent      │        │   Django REST    │
+└─────────────────┘        └──────────────────┘
+                                 │
+                                 ▼
+                          ┌──────────────────┐
+                          │ PostgreSQL +     │
+                          │ TimescaleDB      │
+                          └──────────────────┘
+                                  │
+                                  ▼
+                          ┌──────────────────┐
+                          │   Dashboard      │
+                          │   (Browser)      │
+                          └──────────────────┘
+```
+
+## 📁 Estrutura do Projeto
+
+```
+monitor/
+├── monitor-api/                    # Projeto Django REST
+│   ├── monitor_api/               # Configurações Django
+│   │   ├── settings.py
+│   │   ├── urls.py
+│   │   ├── views.py
+│   │   └── wsgi.py
+│   ├── metrics/                   # App de métricas
+│   │   ├── models.py
+│   │   ├── views.py
+│   │   ├── serializers.py
+│   │   └── migrations/
+│   ├── templates/
+│   │   └── dashboard.html
+│   ├── static/
+│   │   ├── css/dashboard.css
+│   │   └── js/dashboard.js
+│   ├── manage.py
+│   ├── requirements.txt
+│   └── README.md
+│
+├── monitor-agent/                  # Agente de coleta
+│   ├── agent.py
+│   ├── requirements.txt
+│   ├── .env.example
+│   └── README.md
+│
+└── README.md                        # Este arquivo
+```
+
+## 📦 Pré-requisitos
+
+### Sistema Operacional
+- Linux Xubuntu 20.04 LTS
+
+### Dependências Globais
 - Python 3.7+
+- Django 5.x.x
+- Django Rest Framework 4.x.x
 - pip
+- git
+- PostgreSQL 12+
+- TimescaleDB
 
-### Setup
+## 🚀 Instalação
+
+### PostgreSQL 12 + TimescaleDB
+
+#### No Xubuntu:
 
 ```bash
-# Clone o repositório
-git clone https://github.com/seu-usuario/monitor-agent.git
-cd monitor-agent
+# 1. Adicionar repositórios
+sudo apt update
+sudo apt install -y postgresql-12 postgresql-contrib-12
 
-# Crie um ambiente virtual
+# 2. Instalar TimescaleDB
+sudo sh -c "echo 'deb https://packagecloud.io/timescale/timescaledb/ubuntu/ focal main' > /etc/apt/sources.list.d/timescaledb.list"
+wget --quiet -O - https://packagecloud.io/timescaledb/timescaledb/gpgkey | sudo apt-key add -
+sudo apt update
+sudo apt install -y timescaledb-postgresql-12
+
+# 3. Ativar TimescaleDB
+sudo timescaledb-tune --quiet --yes
+
+# 4. Reiniciar PostgreSQL
+sudo systemctl restart postgresql
+
+# 5. Verificar status
+sudo systemctl status postgresql
+```
+
+### Criação do Banco de Dados
+
+```bash
+# 1. Conectar como superuser
+sudo -u postgres psql
+
+# Dentro do psql, execute:
+CREATE DATABASE monitor_de_recursos;
+CREATE USER monitor_user WITH PASSWORD 'sua_senha_aqui';
+ALTER ROLE monitor_user SET client_encoding TO 'utf8';
+ALTER ROLE monitor_user SET default_transaction_isolation TO 'read committed';
+ALTER ROLE monitor_user SET default_transaction_deferrable TO on;
+GRANT ALL PRIVILEGES ON DATABASE monitor_de_recursos TO monitor_user;
+
+# Conectar ao banco
+\c monitor_de_recursos
+
+# Ativar TimescaleDB
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+
+# Sair
+\q
+```
+
+### Monitor API
+
+#### 1. Instale as dependências
+
+```bash
+cd monitor-api
 python3 -m venv venv
-source venv/bin/activate  # Linux/Mac
-# ou
-venv\Scripts\activate  # Windows
 
-# Instale as dependências
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-## Uso
+#### 2. Configure o banco de dados
 
-### Execução básica
+Edite `monitor-api/monitor_api/settings.py` ou use variáveis de ambiente:
 
-```bash
-python agent.py --api http://localhost:8000/api/metrics/ingest/
+```python
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'monitor_de_recursos',
+        'USER': 'monitor_user',
+        'PASSWORD': 'sua_senha_aqui',
+        'HOST': 'localhost',
+        'PORT': '5432',
+    }
+}
 ```
 
-### Com parâmetros customizados
+#### 3. Execute as migrações
 
 ```bash
-(.venv) aluno@vmkarli:~/monitor-agent$ python agent.py --api "http://127.0.0.1:8000/api/metrics/ingest/" --samples 3 --interval 5
+python manage.py makemigrations
+python manage.py migrate
 ```
 
-### Parâmetros
+#### 4. Crie um superusuário (admin)
 
-- `--api`: URL do endpoint ingest da API (**obrigatório**)
-- `--samples`: Número de amostras a coletar (padrão: 3)
-- `--interval`: Intervalo entre amostras em segundos (padrão: 5)
-- `--hostname`: Nome do host (padrão: hostname do sistema)
-
-## Exemplos
-
-**Monitorar com 5 amostras de 10 segundos cada (50 segundos totais):**
 ```bash
-python agent.py \
-  --api http://localhost:8000/api/metrics/ingest/ \
-  --samples 5 \
-  --interval 10
+python manage.py createsuperuser
 ```
 
-**Monitorar servidor remoto:**
+### Monitor Agent
+
+#### 1. Instale as dependências
+
 ```bash
-python agent.py \
-  --api http://api-server.com/api/metrics/ingest/ \
-  --hostname servidor-producao
+cd ../monitor-agent
+python3 -m venv venv
+
+# Xubuntu
+source venv/bin/activate
+
+pip install --upgrade pip
+pip install -r requirements.txt
 ```
 
-## Como Serviço Systemd (Linux)
+#### 2. Teste o agente
+
+```bash
+python agent.py --api http://localhost:8000/api/metrics/ingest/ --samples 3 --interval 5
+```
+
+## ⚙️ Configuração
+
+### Monitor API
+
+#### Variáveis de Ambiente (Opcional)
+
+Crie um arquivo `.env` na raiz de `monitor-api/`:
+
+```bash
+DEBUG=False
+SECRET_KEY=sua-chave-secreta-super-segura
+DATABASE_ENGINE=django.db.backends.postgresql
+DATABASE_NAME=monitor_de_recursos
+DATABASE_USER=monitor_user
+DATABASE_PASSWORD=sua_senha_aqui
+DATABASE_HOST=localhost
+DATABASE_PORT=5432
+ALLOWED_HOSTS=localhost,127.0.0.1,seu-dominio.com
+```
+
+#### Dados de Teste (Opcional)
+
+```bash
+cd monitor-api
+python manage.py shell
+```
+
+```python
+from metrics.models import Host
+
+Host.objects.create(
+    hostname='servidor-producao',
+    ip='192.168.1.100',
+    description='Servidor de produção'
+)
+
+Host.objects.create(
+    hostname='servidor-desenvolvimento',
+    ip='192.168.1.101',
+    description='Servidor de desenvolvimento'
+)
+
+exit()
+```
+
+### Monitor Agent
+
+#### Variáveis de Configuração
+
+Crie um arquivo `.env` na raiz de `monitor-agent/`:
+
+```bash
+AGENT_API_URL=http://192.168.1.10:8000/api/metrics/ingest/
+AGENT_SAMPLES=5
+AGENT_INTERVAL=10
+AGENT_HOSTNAME=servidor-producao
+```
+
+## 🏃 Execução
+
+### Desenvolvimento Local
+
+#### Terminal 1 - Iniciar API:
+
+```bash
+cd monitor-api
+source venv/bin/activate  # Xubuntu
+python manage.py runserver 0.0.0.0:8000
+```
+
+Acesse:
+- **API**: http://localhost:8000/api/
+- **Dashboard**: http://localhost:8000/dashboard/
+- **Admin**: http://localhost:8000/admin/
+
+#### Terminal 2 - Iniciar Agente:
+
+```bash
+cd monitor-agent
+source venv/bin/activate  # Xubuntu
+python agent.py --api http://localhost:8000/api/metrics/ingest/ --samples 3 --interval 5
+```
+
+### Produção
+
+#### Monitor API com Gunicorn
+
+```bash
+cd monitor-api
+source venv/bin/activate
+pip install gunicorn
+
+gunicorn --bind 0.0.0.0:8000 --workers 4 monitor_api.wsgi:application
+```
+
+#### Monitor Agent como Serviço Systemd
 
 Crie `/etc/systemd/system/monitor-agent.service`:
 
 ```ini
 [Unit]
 Description=Monitor Agent - Coleta de Métricas
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=monitor-agent
 WorkingDirectory=/opt/monitor-agent
+Environment="PATH=/opt/monitor-agent/venv/bin"
 ExecStart=/opt/monitor-agent/venv/bin/python /opt/monitor-agent/agent.py \
-  --api http://localhost:8000/api/metrics/ingest/ \
+  --api http://192.168.1.10:8000/api/metrics/ingest/ \
   --samples 5 \
   --interval 10 \
-  --hostname meu-servidor
+  --hostname producao-01
 
 Restart=always
 RestartSec=10
@@ -99,7 +337,8 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
-Então ative:
+Ative:
+
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable monitor-agent
@@ -107,19 +346,50 @@ sudo systemctl start monitor-agent
 sudo systemctl status monitor-agent
 ```
 
-## Monitoramento de Logs
+## 📡 Endpoints da API
+
+### Hosts
 
 ```bash
-# Ver logs em tempo real
-sudo journalctl -u monitor-agent -f
+# Listar todos
+GET /api/hosts/
 
-# Ver últimos 50 logs
-sudo journalctl -u monitor-agent -n 50
+# Criar
+POST /api/hosts/
+{
+  "hostname": "novo-servidor",
+  "ip": "192.168.1.200",
+  "description": "Descrição"
+}
+
+# Detalhes
+GET /api/hosts/{id}/
+
+# Atualizar
+PUT /api/hosts/{id}/
+
+# Deletar
+DELETE /api/hosts/{id}/
 ```
 
-## Estrutura de Dados Enviados
+### Métricas
 
-```json
+```bash
+# Listar com filtros
+GET /api/metrics/?host=1&metric_type=memory_percent_avg&range=24h
+# Parâmetros:
+# - host: ID do host
+# - metric_type: memory_percent_avg, disk_percent_avg
+# - range: 1h, 6h, 24h, 7d (padrão: 24h)
+
+# Últimas 10 métricas
+GET /api/metrics/latest/
+
+# Gerar relatório
+GET /api/metrics/report/?host=1&range=24h
+
+# Ingerir métricas (usado pelo agente)
+POST /api/metrics/ingest/
 {
   "hostname": "meu-servidor",
   "ip": "192.168.1.100",
@@ -130,72 +400,142 @@ sudo journalctl -u monitor-agent -n 50
     {
       "metric_type": "memory_percent_avg",
       "value": 45.2,
-      "extra": {
-        "min": 40.1,
-        "max": 50.3,
-        "avg": 45.2,
-        "last": 45.2,
-        "total": 16000000000,
-        "available": 8800000000,
-        "used": 7200000000
-      }
+      "extra": {"min": 40.1, "max": 50.3, "avg": 45.2, "last": 45.2}
     },
     {
       "metric_type": "disk_percent_avg",
       "value": 65.8,
-      "extra": {
-        "min": 65.0,
-        "max": 66.5,
-        "avg": 65.8,
-        "last": 65.8,
-        "total": 1099511627776,
-        "used": 724324917248,
-        "free": 375186710528
-      }
+      "extra": {"min": 65.0, "max": 66.5, "avg": 65.8, "last": 65.8}
     }
   ]
 }
 ```
 
-## Troubleshooting
+## 🔍 Troubleshooting
 
-### Erro de conexão com a API
+### Erro: "psycopg2.OperationalError"
 
-```
-[FALHA] Não foi possível enviar: Connection refused
-```
-
-Verifique se:
-- A API está rodando: `curl http://localhost:8000/api/`
-- A URL está correta
-- Firewall não está bloqueando
-
-### Permissão negada no diretório
-
-```
-PermissionError: [Errno 13] Permission denied: '/var/lib/monitor-agent'
-```
-
-Execute como root ou ajuste permissões:
 ```bash
-sudo mkdir -p /var/lib/monitor-agent
-sudo chown $USER:$USER /var/lib/monitor-agent
+# Verifique se PostgreSQL está rodando
+sudo systemctl status postgresql
+
+# Teste a conexão
+psql -U monitor_user -d monitor_de_recursos -h localhost
 ```
 
-## Desenvolvimento
+### Erro: "relation 'metrics_metric' does not exist"
 
-Para contribuir:
+```bash
+cd monitor-api
+python manage.py migrate
+```
+
+### Erro: "Connection refused" no agente
+
+```bash
+# Verifique se a API está rodando
+curl http://localhost:8000/api/
+
+# Teste a URL correta
+python agent.py --api http://seu-ip:8000/api/metrics/ingest/ --samples 1 --interval 1
+```
+
+### Dashboard em branco
+
+1. Abra o console do navegador (F12)
+2. Verifique se há erros
+3. Certifique-se de que há dados:
+
+```bash
+cd monitor-api
+python manage.py shell
+from metrics.models import Metric
+print(Metric.objects.count())  # Deve retornar > 0
+```
+
+### Agente para de enviar dados
+
+```bash
+# Reinicie o serviço
+sudo systemctl restart monitor-agent
+
+# Verifique os logs
+sudo journalctl -u monitor-agent -f
+
+# Veja últimas linhas
+sudo journalctl -u monitor-agent -n 50
+```
+
+## 📊 Dashboard
+
+Acesse http://localhost:8000/dashboard/ para visualizar:
+
+- **Gráfico de Memória**: Uso em tempo real
+- **Gráfico de Disco**: Espaço em uso
+- **Filtros**: Por host e intervalo de tempo
+- **Download**: Relatórios em JSON ou CSV
+
+## 🔧 Desenvolvimento
+
+### Estrutura de Dados - Host
+
+```python
+class Host(models.Model):
+    hostname = CharField(max_length=150, unique=True)
+    ip = CharField(max_length=45)
+    description = TextField(blank=True)
+    created_at = DateTimeField(auto_now_add=True)
+```
+
+### Estrutura de Dados - Metric
+
+```python
+class Metric(models.Model):
+    host = ForeignKey(Host, on_delete=CASCADE)
+    timestamp = DateTimeField(db_index=True)
+    metric_type = CharField(max_length=50)
+    value = FloatField()
+    extra = JSONField(blank=True, null=True)
+```
+
+## 📈 Performance
+
+### Recursos do Agente
+- CPU: < 1%
+- Memória: ~30-50 MB
+- Banda: ~500 bytes por envio
+
+### Ciclos Recomendados
+- **Pequeno**: 3 amostras × 5s = 15s
+- **Médio**: 5 amostras × 10s = 50s
+- **Grande**: 10 amostras × 30s = 300s
+
+### Armazenamento
+```
+Dados por ciclo: ~500 bytes
+Por dia: ~40-130 MB
+Por mês: ~1-4 GB
+```
+
+## 📝 Licença
+
+MIT License - veja LICENSE.md
+
+## 🤝 Contribuindo
 
 1. Fork o repositório
-2. Crie uma branch para sua feature (`git checkout -b feature/AmazingFeature`)
+2. Crie uma branch (`git checkout -b feature/AmazingFeature`)
 3. Commit suas mudanças (`git commit -m 'Add some AmazingFeature'`)
 4. Push para a branch (`git push origin feature/AmazingFeature`)
 5. Abra um Pull Request
 
-## Licença
-
-MIT License - veja LICENSE.md para detalhes
-
-## Suporte
+## 🆘 Suporte
 
 Para reportar bugs ou sugerir features, abra uma issue no GitHub.
+
+---
+
+**Desenvolvido com ❤️ para a disciplina Tópicos Especiais do Instituto Federal Catarinense - Campus Fraiburgo**
+
+Versão: 1.0.0  
+Última atualização: 2024-11-17
