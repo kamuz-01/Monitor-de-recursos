@@ -1,6 +1,9 @@
 # Monitor de Recursos 📊
 
-Sistema completo de monitoramento de recursos de sistema com API REST centralizada e agentes distribuídos.
+Serviço leve escrito em Python que coleta métricas locais do sistema (memória ram e disco) e envia periodicamente para uma API REST centralizada para armazenamento e monitoramento em tempo real.
+
+Este agente pode ser instalado em múltiplos servidores Linux, Windows ou WSL para formar uma rede de monitoramento distribuído.
+
 
 ## 📋 Índice
 
