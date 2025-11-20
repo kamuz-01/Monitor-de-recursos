@@ -18,10 +18,10 @@ Este agente pode ser instalado em múltiplos servidores Linux, Windows ou WSL pa
 
 ```
                      
-┌─────────────────┐        ┌──────────────────┐        ┌──────────────────┐        ┌──────────────────┐
-│     monitor-    │ ────▶ │   Monitor API    │  ────▶ │   PostgreSQL +   │ ────▶ │    Dashboard     │
-│      agent      │        │   Django REST    │        │   TimescaleDB    │        │    (Browser)     │
-└─────────────────┘        └──────────────────┘        └──────────────────┘        └──────────────────┘
+┌─────────────────┐     (POST)       ┌──────────────────┐                                 ┌──────────────────┐                                        ┌──────────────────┐
+│     monitor-    │      ────▶      │   monitor-api    │             ────▶               │   PostgreSQL +   │                ────▶                  │    Dashboard     │                  ────▶
+│      agent      │  Envia métricas  │   Django REST    │  Recebe e envia métricas ao DB  │   TimescaleDB    │  Armazena e disponibiliza as métricas  │    (Browser)     │  Mostra as métricas via interface gráfica
+└─────────────────┘                  └──────────────────┘                                 └──────────────────┘                                        └──────────────────┘
                           
 ```
 
