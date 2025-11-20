@@ -41,5 +41,3 @@ def report(request):
     ]
 
     return JsonResponse({"report": data}, safe=False)
-
-
