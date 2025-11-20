@@ -66,13 +66,9 @@ async function loadMetrics(hostId, range, metricType) {
 }
 
 /* ---------------------------------------------
-   Cria gráfico com EMA, Zoom com limites e Pan com inércia
+   Cria gráfico com Pan (Maps), Zoom (Ctrl) e 30 Ticks
 ------------------------------------------------ */
 function renderChartWithEMA(canvasId, label, labels, values, colorLine, colorEMA) {
-
-    const MIN_RANGE = 30;
-    const MAX_RANGE = labels.length;
-
     const canvas = document.getElementById(canvasId);
 
     if (canvas.chartInstance) {
@@ -81,10 +77,11 @@ function renderChartWithEMA(canvasId, label, labels, values, colorLine, colorEMA
 
     const emaValues = calculateEMA(values);
 
+    // Configuração do gráfico
     const chart = canvas.chartInstance = new Chart(canvas, {
         type: "line",
         data: {
-            labels,
+            labels: labels,
             datasets: [
                 {
                     label: `${label} (Real)`,
@@ -92,7 +89,8 @@ function renderChartWithEMA(canvasId, label, labels, values, colorLine, colorEMA
                     borderColor: colorLine,
                     borderWidth: 1,
                     pointRadius: 2,
-                    tension: 0.2
+                    tension: 0.2,
+                    order: 2
                 },
                 {
                     label: `${label} (EMA)`,
@@ -101,138 +99,76 @@ function renderChartWithEMA(canvasId, label, labels, values, colorLine, colorEMA
                     borderWidth: 2,
                     pointRadius: 0,
                     borderDash: [5, 5],
-                    tension: 0.35
+                    tension: 0.35,
+                    order: 1
                 }
             ]
         },
-
         options: {
             responsive: true,
-            interaction: { mode: "nearest", intersect: false },
-
+            maintainAspectRatio: false,
+            interaction: {
+                mode: "index",
+                intersect: false,
+            },
             scales: {
                 y: {
                     beginAtZero: true,
                     max: 100,
                     ticks: { callback: v => `${v}%` }
-                }
-            },
-
-            plugins: {
-                zoom: {
-
-                    limits: {
-                        x: { minRange: MIN_RANGE }
-                    },
-
-                    zoom: {
-                        wheel: {
-                            enabled: true,
-                            modifierKey: "ctrl"
-                        },
-                        mode: "x",
-
-                        /* --------- CORRIGIDO: sem event --------- */
-                        onZoom({ chart, delta, center }) {
-    const scale = chart.scales.x;
-
-    // pixel onde o usuário está apontando
-    const mousePixel = center.x;
-    const mouseValue = scale.getValueForPixel(mousePixel);
-
-    const zoomFactor = delta.y < 0 ? 0.9 : 1.1;
-
-    let newMin = mouseValue - (mouseValue - scale.min) * zoomFactor;
-    let newMax = mouseValue + (scale.max - mouseValue) * zoomFactor;
-
-    const newRange = newMax - newMin;
-
-    if (newRange < MIN_RANGE) {
-        const mid = mouseValue;
-        newMin = mid - MIN_RANGE / 2;
-        newMax = mid + MIN_RANGE / 2;
-    }
-
-    if (newRange > MAX_RANGE) {
-        newMin = 0;
-        newMax = MAX_RANGE;
-    }
-
-    scale.options.min = newMin;
-    scale.options.max = newMax;
-    chart.update("none");
-}
-                    },
-
-                    pan: {
-                        enabled: true,
-                        mode: "x",
-
-                        onPanStart({ chart }) {
-                            chart.$velocity = 0;
-                            chart.$lastTime = performance.now();
-                            chart.canvas.style.cursor = "grabbing";
-                        },
-
-                        onPan({ chart, delta }) {
-                            const now = performance.now();
-                            const dt = now - chart.$lastTime;
-
-                            chart.$velocity = delta.x / dt;
-                            chart.$lastTime = now;
-
-                            const scale = chart.scales.x;
-
-                            const minPixel = scale.getPixelForValue(scale.min) - delta.x;
-                            const maxPixel = scale.getPixelForValue(scale.max) - delta.x;
-
-                            scale.options.min = scale.getValueForPixel(minPixel);
-                            scale.options.max = scale.getValueForPixel(maxPixel);
-
-                            chart.update("none");
-                        },
-
-                        onPanComplete({ chart }) {
-                            const friction = 0.95;
-
-                            function animate() {
-                                if (Math.abs(chart.$velocity) < 0.01) {
-                                    chart.canvas.style.cursor = "grab";
-                                    return;
-                                }
-
-                                const scale = chart.scales.x;
-                                const dx = chart.$velocity * 16;
-
-                                const minPixel = scale.getPixelForValue(scale.min) - dx;
-                                const maxPixel = scale.getPixelForValue(scale.max) - dx;
-
-                                scale.options.min = scale.getValueForPixel(minPixel);
-                                scale.options.max = scale.getValueForPixel(maxPixel);
-
-                                chart.$velocity *= friction;
-                                chart.update("none");
-
-                                requestAnimationFrame(animate);
-                            }
-
-                            requestAnimationFrame(animate);
-                        }
+                },
+                x: {
+                    ticks: {
+                        maxTicksLimit: 30 // <--- AQUI MUDOU DE 10 PARA 30
                     }
                 }
             },
-
-            /* Reset ao dar duplo clique */
-            onDblClick(event, elements, chart) {
-                chart.resetZoom();
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+                zoom: {
+                    // Limites
+                    limits: {
+                        x: {
+                            min: 0,
+                            max: labels.length - 1,
+                            minRange: 5 
+                        },
+                        y: {
+                            min: 0,
+                            max: 100
+                        }
+                    },
+                    // Pan (Arrastar estilo Maps)
+                    pan: {
+                        enabled: true,   
+                        mode: 'x',       
+                        threshold: 10,   
+                    },
+                    // Zoom (Apenas com Ctrl pressionado)
+                    zoom: {
+                        wheel: {
+                            enabled: true,
+                            modifierKey: 'ctrl', 
+                        },
+                        pinch: {
+                            enabled: true 
+                        },
+                        mode: 'x',
+                    }
+                }
             }
         }
     });
 
-    /* ----- cursor grab ------ */
+    /* Cursores visuais */
     canvas.style.cursor = "grab";
+    
+    canvas.addEventListener('mousedown', () => canvas.style.cursor = "grabbing");
+    canvas.addEventListener('mouseup', () => canvas.style.cursor = "grab");
+    canvas.addEventListener('mouseout', () => canvas.style.cursor = "grab");
 }
-
 
 /* ---------------------------------------------
    Atualiza estatísticas
@@ -255,27 +191,42 @@ function updateStats(elementId, values) {
    Carrega todo o dashboard
 ------------------------------------------------ */
 async function loadDashboard() {
-    const hostId = document.getElementById("hostSelect").value;
-    const range = document.getElementById("rangeSelect").value;
+    const hostSelect = document.getElementById("hostSelect");
+    const rangeSelect = document.getElementById("rangeSelect");
+    
+    const hostId = hostSelect.value;
+    const range = rangeSelect.value;
 
-    console.log("Dashboard:", hostId, range);
+    if (!hostId) return;
 
+    console.log("Atualizando dashboard:", hostId, range);
+
+    // CPU
     const cpu = await loadMetrics(hostId, range, "cpu_percent");
-    if (cpu.length > 0) {
+    if (cpu && cpu.length > 0) {
         const labels = cpu.map(c => new Date(c.timestamp).toLocaleTimeString("pt-BR"));
         const values = cpu.map(c => Number(c.value));
 
         renderChartWithEMA("cpuChart", "CPU (%)", labels, values, "#F44336", "#FF9800");
         updateStats("cpuStats", values);
+    } else {
+        const ctx = document.getElementById("cpuChart");
+        if(ctx.chartInstance) ctx.chartInstance.destroy();
+        document.getElementById("cpuStats").textContent = "Aguardando dados...";
     }
 
+    // Memória
     const mem = await loadMetrics(hostId, range, "memory_percent");
-    if (mem.length > 0) {
+    if (mem && mem.length > 0) {
         const labels = mem.map(m => new Date(m.timestamp).toLocaleTimeString("pt-BR"));
         const values = mem.map(m => Number(m.value));
 
         renderChartWithEMA("memoryChart", "Memória RAM (%)", labels, values, "#2196F3", "#00BCD4");
         updateStats("memoryStats", values);
+    } else {
+        const ctx = document.getElementById("memoryChart");
+        if(ctx.chartInstance) ctx.chartInstance.destroy();
+        document.getElementById("memoryStats").textContent = "Aguardando dados...";
     }
 }
 
@@ -348,7 +299,7 @@ function resetZoom(canvasId) {
 ------------------------------------------------ */
 document.addEventListener("DOMContentLoaded", async () => {
     await loadHosts();
-    await loadDashboard();
+    setTimeout(loadDashboard, 500);
 
     document.getElementById("hostSelect").addEventListener("change", loadDashboard);
     document.getElementById("rangeSelect").addEventListener("change", loadDashboard);
