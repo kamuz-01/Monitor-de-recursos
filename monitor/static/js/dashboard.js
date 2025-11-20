@@ -93,15 +93,19 @@ function renderChartWithEMA(canvasId, label, labels, values, colorLine, colorEMA
                     order: 2
                 },
                 {
-                    label: `${label} (EMA)`,
-                    data: emaValues,
-                    borderColor: colorEMA,
-                    borderWidth: 2,
-                    pointRadius: 0,
-                    borderDash: [5, 5],
-                    tension: 0.35,
-                    order: 1
-                }
+    		    label: `${label} (EMA)`,
+    		    data: emaValues,
+    		    borderColor: colorEMA,
+    		    borderWidth: 2,
+    		    pointRadius: 0,
+    		    borderDash: [5, 5],
+    		    tension: 0.35,
+    		    order: 1,
+    		    fill: {
+        		target: 'origin',
+        		above: colorEMA + "40"  // 40 = 25% de opacidade em hex
+    		   }
+		}
             ]
         },
         options: {
