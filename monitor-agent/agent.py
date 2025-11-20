@@ -3,17 +3,21 @@ import psutil
 import time
 import requests
 import socket
+import json
+import os
 from datetime import datetime, timezone
 import argparse
-import json
 import platform
 import uuid
-import os
+from pathlib import Path
 
 AGENT_ID_FILE = "/var/lib/monitor-agent/agent_id.txt"
 
+def ensure_directories():
+    Path("/var/lib/monitor-agent").mkdir(parents=True, exist_ok=True)
+
 def load_agent_id():
-    os.makedirs("/var/lib/monitor-agent", exist_ok=True)
+    ensure_directories()
     if os.path.exists(AGENT_ID_FILE):
         with open(AGENT_ID_FILE, "r") as f:
             return f.read().strip()
@@ -23,106 +27,79 @@ def load_agent_id():
     return new_id
 
 def collect_sample():
-    mem = psutil.virtual_memory()
-    memory = {
-        'percent': mem.percent,
-        'total': mem.total,
-        'available': mem.available,
-        'used': mem.used,
-    }
+    cpu_percent = psutil.cpu_percent(interval=1)
+    memory_percent = psutil.virtual_memory().percent
+    return cpu_percent, memory_percent
 
-    disk = psutil.disk_usage('/')
-    disk_info = {
-        'percent': disk.percent,
-        'total': disk.total,
-        'used': disk.used,
-        'free': disk.free
-    }
+# buffer para guardar métricas caso a API falhe
+pending = []
 
-    return memory, disk_info
-
-def consolidate(samples):
-    mem_percents = [m['percent'] for m, d in samples]
-    disk_percents = [d['percent'] for m, d in samples]
-
-    return {
-        'memory': {
-            'min': min(mem_percents),
-            'max': max(mem_percents),
-            'avg': sum(mem_percents) / len(mem_percents),
-            'last': mem_percents[-1],
+def format_metric(hostname, ts, cpu, mem):
+    """Converte duas métricas no formato que o Django espera."""
+    return [
+        {
+            "hostname": hostname,
+            "metric_type": "cpu_percent",
+            "timestamp": ts,
+            "value": cpu
         },
-        'disk': {
-            'min': min(disk_percents),
-            'max': max(disk_percents),
-            'avg': sum(disk_percents) / len(disk_percents),
-            'last': disk_percents[-1],
+        {
+            "hostname": hostname,
+            "metric_type": "memory_percent",
+            "timestamp": ts,
+            "value": mem
         }
-    }
+    ]
 
-def send_metrics(api_url, metrics):
+def send_to_api(api_url, metrics):
     try:
-        r = requests.post(api_url, json=metrics, timeout=10)
-        if r.status_code in (200, 201):
-            print("[OK] Dados enviados!")
-        else:
-            print("[ERRO]", r.status_code, r.text)
+        resp = requests.post(api_url, json=metrics, timeout=5)
+        if resp.status_code in (200, 201):
+            print(f"[OK] Enviado {len(metrics)} métricas")
+            return True
+        print(f"[ERRO] API {resp.status_code}: {resp.text}")
+        return False
     except Exception as e:
-        print("[FALHA] Não foi possível enviar:", e)
+        print(f"[FALHA] {e}")
+        return False
 
-def run_loop(api_url, samples, interval, hostname=None):
+def run_loop(api_url, hostname=None, interval=60):
     if hostname is None:
         hostname = socket.gethostname()
 
     machine_id = load_agent_id()
 
-    print(f"[AGENTE] Iniciando agente para {hostname} (ID={machine_id})")
+    print(f"[AGENTE] Iniciado para {hostname}")
+    print(f"[ID] {machine_id}")
+    print(f"[Intervalo] {interval}s")
+
+    global pending
 
     while True:
-        collected_samples = []
+        cpu, mem = collect_sample()
+        ts = datetime.now(timezone.utc).isoformat()
 
-        for _ in range(samples):
-            mem, disk = collect_sample()
-            collected_samples.append((mem, disk))
-            time.sleep(interval)
+        batch = format_metric(hostname, ts, cpu, mem)
 
-        cons = consolidate(collected_samples)
-        now = datetime.now(timezone.utc).isoformat()
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] CPU={cpu:.1f}%  MEM={mem:.1f}%")
 
-        payload = {
-            'hostname': hostname,
-            'ip': socket.gethostbyname(hostname),
-            'platform': platform.platform(),
-            'uuid': machine_id,
-            'timestamp': now,
-            'metrics': [
-                {
-                    'metric_type': 'memory_percent_avg',
-                    'value': cons['memory']['avg'],
-                    'extra': cons['memory'],
-                },
-                {
-                    'metric_type': 'disk_percent_avg',
-                    'value': cons['disk']['avg'],
-                    'extra': cons['disk'],
-                }
-            ]
-        }
+        # junta buffer antigo + métrica nova
+        to_send = pending + batch
+        ok = send_to_api(api_url, to_send)
 
-        send_metrics(api_url, payload)
+        if ok:
+            pending = []  # limpamos buffer
+        else:
+            print("[BUFFER] Guardando métricas não enviadas")
+            pending += batch
 
+        time.sleep(interval)
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--api', required=True, help='URL do endpoint ingest')
-    parser.add_argument('--samples', type=int, default=3)
-    parser.add_argument('--interval', type=int, default=5)
-    parser.add_argument('--hostname', default=None)
-    args = parser.parse_args()
+    parser.add_argument("--api", required=True)
+    parser.add_argument("--hostname", default=None)
+    parser.add_argument("--interval", type=int, default=60)
+    a = parser.parse_args()
 
-    run_loop(
-        api_url=args.api,
-        samples=args.samples,
-        interval=args.interval,
-        hostname=args.hostname
-    )
+    run_loop(api_url=a.api, hostname=a.hostname, interval=a.interval)
