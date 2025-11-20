@@ -9,4 +9,3 @@ class Metric(models.Model):
 
     def __str__(self):
         return f"{self.hostname} - {self.created_at}"
-
