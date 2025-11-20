@@ -1,227 +1,357 @@
-let memoryChart = null;
-let diskChart = null;
 let cpuChart = null;
+let memoryChart = null;
 
-// --------------------------------
-// Carrega lista de hosts
-// --------------------------------
+/* ---------------------------------------------
+   Carrega lista de hosts
+------------------------------------------------ */
 async function loadHosts() {
     try {
         const res = await fetch("/api/hosts/");
         const data = await res.json();
-        const sel = document.getElementById("hostSelect");
 
+        const sel = document.getElementById("hostSelect");
         sel.innerHTML = "";
+
         data.forEach(h => {
-            sel.innerHTML += `<option value="${h.id}">${h.hostname}</option>`;
+            sel.insertAdjacentHTML(
+                "beforeend",
+                `<option value="${h.id}">${h.hostname}</option>`
+            );
         });
+
     } catch (error) {
         console.error("Erro ao carregar hosts:", error);
     }
 }
 
-// --------------------------------
-// Carrega métricas com intervalo
-// --------------------------------
+/* ---------------------------------------------
+   EMA – Exponential Moving Average
+------------------------------------------------ */
+function calculateEMA(values, smoothing = 0.3) {
+    if (!values || values.length === 0) return [];
+
+    let ema = [values[0]];
+
+    for (let i = 1; i < values.length; i++) {
+        ema.push(values[i] * smoothing + ema[i - 1] * (1 - smoothing));
+    }
+
+    return ema;
+}
+
+/* ---------------------------------------------
+   Carrega métricas
+------------------------------------------------ */
 async function loadMetrics(hostId, range, metricType) {
     try {
-        let url = `/api/metrics/?host=${hostId}&metric_type=${metricType}&range=${range}`;
-        console.log("Fetchando:", url);
-        
+        let url = `/api/metrics/report/?host=${hostId}&metric_type=${metricType}&range=${range}`;
+        console.log("Buscando:", url);
+
         const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-        
+        if (!res.ok) throw new Error(`Erro HTTP ${res.status}`);
+
         const json = await res.json();
-        console.log(`Dados recebidos para ${metricType}:`, json);
-        
-        return json.results || json;
+
+        if (json.items) return json.items;
+        if (json.report) return json.report;
+        if (json[metricType]) return json[metricType];
+
+        console.warn("Formato inesperado da API:", json);
+        return [];
+
     } catch (error) {
         console.error("Erro ao carregar métricas:", error);
         return [];
     }
 }
 
-// --------------------------------
-// Renderiza gráfico
-// --------------------------------
-function renderChart(canvasId, label, labels, values) {
+/* ---------------------------------------------
+   Cria gráfico com EMA, Zoom com limites e Pan com inércia
+------------------------------------------------ */
+function renderChartWithEMA(canvasId, label, labels, values, colorLine, colorEMA) {
+
+    const MIN_RANGE = 30;
+    const MAX_RANGE = labels.length;
+
     const canvas = document.getElementById(canvasId);
 
-    // Destruir gráfico anterior
     if (canvas.chartInstance) {
         canvas.chartInstance.destroy();
     }
 
-    canvas.chartInstance = new Chart(canvas, {
+    const emaValues = calculateEMA(values);
+
+    const chart = canvas.chartInstance = new Chart(canvas, {
         type: "line",
         data: {
-            labels: labels,
-            datasets: [{
-                label: label,
-                data: values,
-                borderColor: '#4CAF50',
-                backgroundColor: 'rgba(76, 175, 80, 0.1)',
-                borderWidth: 2,
-                fill: true,
-                tension: 0.4
-            }]
+            labels,
+            datasets: [
+                {
+                    label: `${label} (Real)`,
+                    data: values,
+                    borderColor: colorLine,
+                    borderWidth: 1,
+                    pointRadius: 2,
+                    tension: 0.2
+                },
+                {
+                    label: `${label} (EMA)`,
+                    data: emaValues,
+                    borderColor: colorEMA,
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    borderDash: [5, 5],
+                    tension: 0.35
+                }
+            ]
         },
+
         options: {
             responsive: true,
-            maintainAspectRatio: true,
-            plugins: {
-                legend: {
-                    display: true,
-                    position: 'top'
-                }
-            },
+            interaction: { mode: "nearest", intersect: false },
+
             scales: {
                 y: {
                     beginAtZero: true,
                     max: 100,
-                    title: {
-                        display: true,
-                        text: 'Percentual (%)'
+                    ticks: { callback: v => `${v}%` }
+                }
+            },
+
+            plugins: {
+                zoom: {
+
+                    limits: {
+                        x: { minRange: MIN_RANGE }
+                    },
+
+                    zoom: {
+                        wheel: {
+                            enabled: true,
+                            modifierKey: "ctrl"
+                        },
+                        mode: "x",
+
+                        /* --------- CORRIGIDO: sem event --------- */
+                        onZoom({ chart, delta, center }) {
+    const scale = chart.scales.x;
+
+    // pixel onde o usuário está apontando
+    const mousePixel = center.x;
+    const mouseValue = scale.getValueForPixel(mousePixel);
+
+    const zoomFactor = delta.y < 0 ? 0.9 : 1.1;
+
+    let newMin = mouseValue - (mouseValue - scale.min) * zoomFactor;
+    let newMax = mouseValue + (scale.max - mouseValue) * zoomFactor;
+
+    const newRange = newMax - newMin;
+
+    if (newRange < MIN_RANGE) {
+        const mid = mouseValue;
+        newMin = mid - MIN_RANGE / 2;
+        newMax = mid + MIN_RANGE / 2;
+    }
+
+    if (newRange > MAX_RANGE) {
+        newMin = 0;
+        newMax = MAX_RANGE;
+    }
+
+    scale.options.min = newMin;
+    scale.options.max = newMax;
+    chart.update("none");
+}
+                    },
+
+                    pan: {
+                        enabled: true,
+                        mode: "x",
+
+                        onPanStart({ chart }) {
+                            chart.$velocity = 0;
+                            chart.$lastTime = performance.now();
+                            chart.canvas.style.cursor = "grabbing";
+                        },
+
+                        onPan({ chart, delta }) {
+                            const now = performance.now();
+                            const dt = now - chart.$lastTime;
+
+                            chart.$velocity = delta.x / dt;
+                            chart.$lastTime = now;
+
+                            const scale = chart.scales.x;
+
+                            const minPixel = scale.getPixelForValue(scale.min) - delta.x;
+                            const maxPixel = scale.getPixelForValue(scale.max) - delta.x;
+
+                            scale.options.min = scale.getValueForPixel(minPixel);
+                            scale.options.max = scale.getValueForPixel(maxPixel);
+
+                            chart.update("none");
+                        },
+
+                        onPanComplete({ chart }) {
+                            const friction = 0.95;
+
+                            function animate() {
+                                if (Math.abs(chart.$velocity) < 0.01) {
+                                    chart.canvas.style.cursor = "grab";
+                                    return;
+                                }
+
+                                const scale = chart.scales.x;
+                                const dx = chart.$velocity * 16;
+
+                                const minPixel = scale.getPixelForValue(scale.min) - dx;
+                                const maxPixel = scale.getPixelForValue(scale.max) - dx;
+
+                                scale.options.min = scale.getValueForPixel(minPixel);
+                                scale.options.max = scale.getValueForPixel(maxPixel);
+
+                                chart.$velocity *= friction;
+                                chart.update("none");
+
+                                requestAnimationFrame(animate);
+                            }
+
+                            requestAnimationFrame(animate);
+                        }
                     }
                 }
+            },
+
+            /* Reset ao dar duplo clique */
+            onDblClick(event, elements, chart) {
+                chart.resetZoom();
             }
         }
     });
+
+    /* ----- cursor grab ------ */
+    canvas.style.cursor = "grab";
 }
 
-// --------------------------------
-// Carrega dashboard completo
-// --------------------------------
+
+/* ---------------------------------------------
+   Atualiza estatísticas
+------------------------------------------------ */
+function updateStats(elementId, values) {
+    if (!values.length) {
+        document.getElementById(elementId).textContent = "Sem dados";
+        return;
+    }
+
+    const avg = (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1);
+    const max = Math.max(...values).toFixed(1);
+    const min = Math.min(...values).toFixed(1);
+
+    document.getElementById(elementId).textContent =
+        `Média: ${avg}% | Máx: ${max}% | Mín: ${min}%`;
+}
+
+/* ---------------------------------------------
+   Carrega todo o dashboard
+------------------------------------------------ */
 async function loadDashboard() {
     const hostId = document.getElementById("hostSelect").value;
     const range = document.getElementById("rangeSelect").value;
 
-    console.log("Carregando dashboard para host:", hostId, "range:", range);
+    console.log("Dashboard:", hostId, range);
 
-    // Memória
-    const mem = await loadMetrics(hostId, range, "memory_percent_avg");
-    if (mem && mem.length > 0) {
-        const labels = mem.map(m => new Date(m.timestamp).toLocaleString('pt-BR'));
-        const valuesMem = mem.map(m => m.value);
-        console.log("Renderizando memória com", mem.length, "pontos");
-        renderChart("memoryChart", "Memória (%)", labels, valuesMem);
-    } else {
-        console.warn("Nenhum dado de memória");
+    const cpu = await loadMetrics(hostId, range, "cpu_percent");
+    if (cpu.length > 0) {
+        const labels = cpu.map(c => new Date(c.timestamp).toLocaleTimeString("pt-BR"));
+        const values = cpu.map(c => Number(c.value));
+
+        renderChartWithEMA("cpuChart", "CPU (%)", labels, values, "#F44336", "#FF9800");
+        updateStats("cpuStats", values);
     }
 
-    // Disco
-    const disk = await loadMetrics(hostId, range, "disk_percent_avg");
-    if (disk && disk.length > 0) {
-        const labels = disk.map(d => new Date(d.timestamp).toLocaleString('pt-BR'));
-        const valuesDisk = disk.map(d => d.value);
-        console.log("Renderizando disco com", disk.length, "pontos");
-        renderChart("diskChart", "Disco (%)", labels, valuesDisk);
-    } else {
-        console.warn("Nenhum dado de disco");
-    }
+    const mem = await loadMetrics(hostId, range, "memory_percent");
+    if (mem.length > 0) {
+        const labels = mem.map(m => new Date(m.timestamp).toLocaleTimeString("pt-BR"));
+        const values = mem.map(m => Number(m.value));
 
-    // CPU
-    const cpu = await loadMetrics(hostId, range, "cpu_percent_avg");
-    if (cpu && cpu.length > 0) {
-        const labels = cpu.map(c => new Date(c.timestamp).toLocaleString('pt-BR'));
-        const valuesCpu = cpu.map(c => c.value);
-        console.log("Renderizando CPU com", cpu.length, "pontos");
-        renderChart("cpuChart", "CPU (%)", labels, valuesCpu);
-    } else {
-        console.warn("Nenhum dado de CPU");
+        renderChartWithEMA("memoryChart", "Memória RAM (%)", labels, values, "#2196F3", "#00BCD4");
+        updateStats("memoryStats", values);
     }
 }
 
-// --------------------------------
-// Gera relatório (CSV ou JSON)
-// --------------------------------
+/* ---------------------------------------------
+   Exportar CSV / JSON
+------------------------------------------------ */
 async function generateReport() {
     const hostId = document.getElementById("hostSelect").value;
     const range = document.getElementById("rangeSelect").value;
     const format = document.getElementById("formatSelect")?.value || "json";
 
     try {
-        // Uso o endpoint correto: /api/metrics/report/
-        let url = `/api/metrics/report/?host=${hostId}&range=${range}`;
-
-        console.log("Gerando relatório:", url);
+        const url = `/api/metrics/report/?host=${hostId}&range=${range}`;
         const res = await fetch(url);
-        
-        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-        
         const data = await res.json();
-        console.log("Relatório gerado:", data);
 
-        if (format === "csv") {
-            downloadCSV(data.report, hostId);
-        } else {
-            downloadJSON(data, hostId);
-        }
-    } catch (error) {
-        console.error("Erro ao gerar relatório:", error);
+        if (format === "csv") downloadCSV(data.report, hostId);
+        else downloadJSON(data, hostId);
+
+    } catch (err) {
+        console.error(err);
         alert("Erro ao gerar relatório!");
     }
 }
 
-// --------------------------------
-// Download CSV
-// --------------------------------
-function downloadCSV(metrics, hostId) {
-    if (!metrics || metrics.length === 0) {
+function downloadCSV(report, hostId) {
+    if (!report?.length) {
         alert("Nenhum dado para exportar!");
         return;
     }
 
-    const headers = ["Hostname", "Tipo de Métrica", "Valor", "Timestamp"];
-    const rows = metrics.map(m => [
-        m.hostname || "N/A",
-        m.metric_type,
-        m.value,
-        m.timestamp
+    const header = ["Hostname", "Tipo", "Valor (%)", "Timestamp"];
+    const rows = report.map(m => [
+        m.hostname, m.metric_type, m.value, m.timestamp
     ]);
 
-    let csv = headers.join(",") + "\n";
-    rows.forEach(row => {
-        csv += row.map(cell => `"${cell}"`).join(",") + "\n";
-    });
+    let csv = header.join(",") + "\n";
+    rows.forEach(r => csv += r.join(",") + "\n");
 
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute("download", `relatorio_${hostId}_${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = "hidden";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `relatorio_${hostId}.csv`;
+    a.click();
 }
 
-// --------------------------------
-// Download JSON
-// --------------------------------
 function downloadJSON(data, hostId) {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const link = document.createElement("a");
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+        type: "application/json"
+    });
     const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute("download", `relatorio_${hostId}_${new Date().toISOString().split('T')[0]}.json`);
-    link.style.visibility = "hidden";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `relatorio_${hostId}.json`;
+    a.click();
 }
 
-// --------------------------------
-// Inicialização da página
-// --------------------------------
+function resetZoom(canvasId) {
+    const canvas = document.getElementById(canvasId);
+    if (canvas.chartInstance) {
+        canvas.chartInstance.resetZoom();
+    }
+}
+
+/* ---------------------------------------------
+   Inicialização
+------------------------------------------------ */
 document.addEventListener("DOMContentLoaded", async () => {
     await loadHosts();
-    loadDashboard();
+    await loadDashboard();
 
-    // Atualizar ao mudar filtros
     document.getElementById("hostSelect").addEventListener("change", loadDashboard);
     document.getElementById("rangeSelect").addEventListener("change", loadDashboard);
-    
-    // Auto-refresh a cada 30 segundos
-    setInterval(loadDashboard, 30000);
+
+    setInterval(loadDashboard, 60000);
 });
