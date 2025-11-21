@@ -103,7 +103,7 @@ function renderChartWithEMA(canvasId, label, labels, values, colorLine, colorEMA
     		    order: 1,
     		    fill: {
         		target: 'origin',
-        		above: colorEMA + "40"  // 40 = 25% de opacidade em hex
+        		above: colorEMA + "40"
     		   }
 		}
             ]
@@ -123,7 +123,7 @@ function renderChartWithEMA(canvasId, label, labels, values, colorLine, colorEMA
                 },
                 x: {
                     ticks: {
-                        maxTicksLimit: 30 // <--- AQUI MUDOU DE 10 PARA 30
+                        maxTicksLimit: 30
                     }
                 }
             },
@@ -132,7 +132,6 @@ function renderChartWithEMA(canvasId, label, labels, values, colorLine, colorEMA
                     position: 'top',
                 },
                 zoom: {
-                    // Limites
                     limits: {
                         x: {
                             min: 0,
@@ -144,13 +143,11 @@ function renderChartWithEMA(canvasId, label, labels, values, colorLine, colorEMA
                             max: 100
                         }
                     },
-                    // Pan (Arrastar estilo Maps)
                     pan: {
                         enabled: true,   
                         mode: 'x',       
                         threshold: 10,   
                     },
-                    // Zoom (Apenas com Ctrl pressionado)
                     zoom: {
                         wheel: {
                             enabled: true,
@@ -166,7 +163,6 @@ function renderChartWithEMA(canvasId, label, labels, values, colorLine, colorEMA
         }
     });
 
-    /* Cursores visuais */
     canvas.style.cursor = "grab";
     
     canvas.addEventListener('mousedown', () => canvas.style.cursor = "grabbing");
@@ -235,60 +231,21 @@ async function loadDashboard() {
 }
 
 /* ---------------------------------------------
-   Exportar CSV / JSON
+   Exportar PDF / XLSX
 ------------------------------------------------ */
 async function generateReport() {
     const hostId = document.getElementById("hostSelect").value;
     const range = document.getElementById("rangeSelect").value;
-    const format = document.getElementById("formatSelect")?.value || "json";
+    const format = document.getElementById("formatSelect")?.value || "xlsx";
 
     try {
-        const url = `/api/metrics/report/?host=${hostId}&range=${range}`;
-        const res = await fetch(url);
-        const data = await res.json();
-
-        if (format === "csv") downloadCSV(data.report, hostId);
-        else downloadJSON(data, hostId);
+        const url = `/report/generate/?host=${hostId}&range=${range}&format=${format}`;
+        window.location.href = url;
 
     } catch (err) {
         console.error(err);
         alert("Erro ao gerar relatório!");
     }
-}
-
-function downloadCSV(report, hostId) {
-    if (!report?.length) {
-        alert("Nenhum dado para exportar!");
-        return;
-    }
-
-    const header = ["Hostname", "Tipo", "Valor (%)", "Timestamp"];
-    const rows = report.map(m => [
-        m.hostname, m.metric_type, m.value, m.timestamp
-    ]);
-
-    let csv = header.join(",") + "\n";
-    rows.forEach(r => csv += r.join(",") + "\n");
-
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `relatorio_${hostId}.csv`;
-    a.click();
-}
-
-function downloadJSON(data, hostId) {
-    const blob = new Blob([JSON.stringify(data, null, 2)], {
-        type: "application/json"
-    });
-    const url = URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `relatorio_${hostId}.json`;
-    a.click();
 }
 
 function resetZoom(canvasId) {
