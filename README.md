@@ -1,18 +1,54 @@
 # Monitor de Recursos 📊
 
-Serviço leve escrito em Python que coleta métricas locais do sistema (memória ram e disco) e envia periodicamente para uma API REST centralizada para armazenamento e monitoramento em tempo real e exibí-la um dashboard centralizado.
+Um sistema de monitoramento leve escrito em python focado na coleta, armazenamento e visualização de métricas de uso (CPU e Memória RAM), que são enviadas periodicamente para uma API REST centralizada para armazenamento e monitoramento em tempo real e exibí-la um dashboard centralizado..
 
-Este agente pode ser instalado em múltiplos servidores Linux, Windows ou WSL para formar uma rede de monitoramento distribuído.
+O sistema é composto por um Agente (que roda na máquina monitorada) e uma API Central (que recebe os dados, os armazena no Postgresql + TimescaleDB e os serve em um dashboard interativo). A interface gráfica inclui a geração de relatórios gerenciais nos formatos PDF e Excel.
+
+## 🚀 Funcionalidades Principais
+
+### **Monitoramento em Tempo Real**
+- Coleta de uso de CPU e Memória RAM em intervalos configuráveis via código.
+
+### **Gráficos Interativos**
+- Dashboard web com:
+  - Zoom (*Ctrl + Scroll*)
+  - Uso de Média Móvel Exponencial (**EMA**) para suavizar tendências.
+
+### **Agente Resiliente**
+- **Buffer Local:** se a API cair, o agente armazena as métricas localmente e envia esses dados quando a conexão voltar.
+- **Auto-Discovery:** detecta automaticamente o *hostname* e o IP real da máquina na rede onde está rodando.
+
+### **Relatórios Avançados**
+- Exportação em formato **PDF** e **Excel (.xlsx)**.
+- Estatísticas automáticas: **Mínimo**, **Máximo** e **Média**.
+- Filtros de data:
+  - Pré-definidos: **1h**, **6h**, **24h**, **7 dias**
+- Conversão automática de fuso horário (**UTC → Local [Fuso horário de São Paulo]**).
+
 
 ## 🧩🧩 Componentes
-- **Monitor API**: Backend Django REST que armazena e recupera dados
-- **Monitor Agent**: Script que coleta métricas e envia para a API
-- **Dashboard**: Interface web com gráficos em tempo real
-- **TimescaleDB**: Banco de dados otimizado para séries temporais
+O sistema segue o padrão **Agente–Servidor**, composto por quatro camadas principais:
+
+### **1. Monitor Agent (Python)**
+- Script executado em cada VM monitorada.
+- Coleta métricas usando **psutil**.
+- Envia os dados para a API REST via **HTTP POST**.
+
+### **2. Monitor API (Django)**
+- Recebe as métricas enviadas pelo agente.
+- Armazena as métricas recebidas no **PostgreSQL**.
+
+### **3. Dashboard (Frontend)**
+- Consome a API em formato **JSON**.
+- Renderiza gráficos interativos utilizando **Chart.js**.
+
+### **4. Exportador**
+- Processa dados do banco.
+- Gera relatórios para download nos formatos **PDF** e **XLSX**.
 
 **Métricas Coletadas:**
 - Memória RAM (%)
-- Disco (%)
+- CPU (%)
 
 ## 🏗️ Arquitetura
 
@@ -62,13 +98,12 @@ monitor/
 - Linux Xubuntu 20.04 LTS
 
 ### Dependências Globais
-- Python 3.7+
-- Django 5.x.x
-- Django Rest Framework 4.x.x
+- **Back-end:** Python 3.8.10, Django 4.2.26, Django REST Framework 3.15.2
+- **Frontend:** HTML5, CSS3, Chart.js (com plugin Zoom e Adapter Date-fns)
+- **Agente:** Python, Psutil, Requests
+- **Relatórios:** ReportLab (PDF), OpenPyXL (Excel)
+- **Banco de Dados:** PostgreSQL + TimescaleDB
 - pip
-- git
-- PostgreSQL 12+
-- TimescaleDB
 
 ## 🚀 Instalação
 
