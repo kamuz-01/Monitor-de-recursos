@@ -19,7 +19,7 @@ O sistema é composto por um Agente (que roda na máquina monitorada) que coleta
 - **Auto-Discovery:** detecta automaticamente o *hostname* e o IP real da máquina na rede onde está rodando.
 
 ### **Relatórios Avançados**
-- Exportação em formato **PDF** e **Excel (.xlsx)**.
+- Exportação nos formatos **PDF** e **Excel (.xlsx)**.
 - Estatísticas automáticas: **Mínimo**, **Máximo** e **Média**.
 - Filtros de data:
   - Pré-definidos: **1h**, **6h**, **24h**, **7 dias**
