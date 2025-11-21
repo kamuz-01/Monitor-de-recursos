@@ -11,7 +11,7 @@ O sistema é composto por um Agente (que roda na máquina monitorada) que coleta
 
 ### **Gráficos Interativos**
 - Dashboard web com:
-  - Zoom (*Ctrl + Scroll*)
+  - Zoom **(*Ctrl + Scroll*)**
   - Uso de Média Móvel Exponencial (**EMA**) para suavizar tendências.
 
 ### **Agente Resiliente**
