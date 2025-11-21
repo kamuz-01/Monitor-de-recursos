@@ -7,7 +7,7 @@ O sistema é composto por um Agente (que roda na máquina monitorada) que coleta
 ## 🚀 Funcionalidades Principais
 
 ### **Monitoramento em Tempo Real**
-- Coleta de uso de CPU e Memória RAM em intervalos configuráveis via código.
+- Coleta de uso do CPU e Memória RAM em intervalos configuráveis via código.
 
 ### **Gráficos Interativos**
 - Dashboard web com:
