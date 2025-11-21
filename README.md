@@ -1,8 +1,8 @@
 # Monitor de Recursos 📊
 
-Um sistema de monitoramento leve escrito em python focado na coleta, armazenamento e visualização de métricas de uso **_(CPU e Memória RAM)_**, que são enviadas periodicamente para uma API REST centralizada para armazenamento e monitoramento em tempo real e exibí-la um dashboard centralizado..
+Um sistema de monitoramento leve escrito em python focado na coleta, armazenamento e visualização de métricas de uso **_(CPU e Memória RAM)_**.
 
-O sistema é composto por um Agente (que roda na máquina monitorada) e uma API Central (que recebe os dados, os armazena no Postgresql + TimescaleDB e os serve em um dashboard interativo). A interface gráfica inclui a geração de relatórios gerenciais nos formatos PDF e Excel.
+O sistema é composto por um Agente (que roda na máquina monitorada) que coleta as métricas a serem monitoradas, uma API REST (que recebe os dados coletados pelo Agente, os armazena no Postgresql + TimescaleDB e os serve em um dashboard interativo). A interface gráfica inclui a geração de relatórios nos formatos PDF e Excel.
 
 ## 🚀 Funcionalidades Principais
 
