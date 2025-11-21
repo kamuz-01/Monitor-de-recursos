@@ -32,4 +32,5 @@ urlpatterns = [
     path('api/', include(router.urls)),
     path('dashboard/', views.dashboard, name='dashboard'),
     path('report/', views.report, name='report'),
+    path('report/generate/', views.generate_report, name='generate_report'),
 ]
