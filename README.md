@@ -30,7 +30,7 @@ O sistema é composto por um Agente (que roda na máquina monitorada) que coleta
 O sistema segue o padrão **Agente–Servidor**, composto por quatro camadas principais:
 
 ### **1. Monitor Agent (Python)**
-- Script executado em cada VM monitorada.
+- Script executado na VM monitorada.
 - Coleta métricas usando **psutil**.
 - Envia os dados para a API REST via **HTTP POST**.
 
