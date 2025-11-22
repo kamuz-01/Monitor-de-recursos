@@ -33,21 +33,36 @@ class MetricViewSet(viewsets.ModelViewSet):
         if metric_type:
             queryset = queryset.filter(metric_type=metric_type)
 
-        # Calcula o 'agora' e converte para UTC para filtrar no banco corretamente
-        now = timezone.now() 
+        # FIX: Cálculo explícito do tempo de início
+        now = timezone.now()
         
+        # Determina o intervalo EXATAMENTE
         if range_param == '1h':
             start_time = now - timedelta(hours=1)
+            print(f"[1h] Filtrando de {start_time} até {now}")
         elif range_param == '6h':
             start_time = now - timedelta(hours=6)
+            print(f"[6h] Filtrando de {start_time} até {now}")
         elif range_param == '24h':
             start_time = now - timedelta(hours=24)
+            print(f"[24h] Filtrando de {start_time} até {now}")
         elif range_param == '7d':
             start_time = now - timedelta(days=7)
+            print(f"[7d] Filtrando de {start_time} até {now}")
         else:
             start_time = now - timedelta(hours=24)
+            print(f"[default 24h] Filtrando de {start_time} até {now}")
 
-        return queryset.filter(timestamp__gte=start_time).select_related('host').order_by('timestamp')
+        # FIX CRÍTICO: Usa __gte e __lte para garantir inclusão correta
+        filtered = queryset.filter(
+            timestamp__gte=start_time,
+            timestamp__lte=now
+        ).select_related('host').order_by('timestamp')
+        
+        count = filtered.count()
+        print(f"[{range_param}] Total de registros encontrados: {count}")
+        
+        return filtered
 
     @action(detail=False, methods=['post'])
     def ingest(self, request):
@@ -60,7 +75,7 @@ class MetricViewSet(viewsets.ModelViewSet):
 
         for item in items:
             hostname = item.get("hostname")
-            ip = item.get("ip")  # <--- Pega o IP enviado
+            ip = item.get("ip")
             metric_type = item.get("metric_type")
             value = item.get("value")
             timestamp = item.get("timestamp")
@@ -71,7 +86,6 @@ class MetricViewSet(viewsets.ModelViewSet):
             # Lógica de Atualização do Host
             if hostname not in hosts_cache:
                 host, _ = Host.objects.get_or_create(hostname=hostname)
-                # Se o IP veio e é diferente do que temos, ATUALIZA
                 if ip and host.ip != ip:
                     host.ip = ip
                     host.save()
@@ -104,23 +118,24 @@ class MetricViewSet(viewsets.ModelViewSet):
     def report(self, request):
         """
         Gera JSON (padrão para gráficos) ou Arquivo (PDF/Excel) para download.
+        FIX: Garante conversão correta de timezone e diferenciação de intervalos
         """
         host_id = request.query_params.get('host')
         metric_type = request.query_params.get('metric_type')
-        range_param = request.query_params.get('range')
+        range_param = request.query_params.get('range', '24h')
         fmt = request.query_params.get('format', 'json') 
         
         start_date_str = request.query_params.get('start_date')
         end_date_str = request.query_params.get('end_date')
 
-        queryset = Metric.objects.select_related('host').all().order_by('-timestamp')
+        queryset = Metric.objects.select_related('host').all().order_by('timestamp')
 
         if host_id:
             queryset = queryset.filter(host_id=host_id)
         if metric_type:
             queryset = queryset.filter(metric_type=metric_type)
 
-        # --- Lógica de Filtro de Tempo ---
+        # --- Lógica de Filtro de Tempo (CORRIGIDA) ---
         now = timezone.now()
         
         if range_param == 'custom' and start_date_str and end_date_str:
@@ -132,11 +147,21 @@ class MetricViewSet(viewsets.ModelViewSet):
             except ValueError:
                 pass
         else:
-            if range_param == '1h': start_time = now - timedelta(hours=1)
-            elif range_param == '6h': start_time = now - timedelta(hours=6)
-            elif range_param == '7d': start_time = now - timedelta(days=7)
-            else: start_time = now - timedelta(hours=24)
-            queryset = queryset.filter(timestamp__gte=start_time)
+            # FIX: Cálculo explícito do intervalo
+            if range_param == '1h': 
+                start_time = now - timedelta(hours=1)
+            elif range_param == '6h': 
+                start_time = now - timedelta(hours=6)
+            elif range_param == '7d': 
+                start_time = now - timedelta(days=7)
+            else: 
+                start_time = now - timedelta(hours=24)
+            
+            # FIX: Usa __gte e __lte para garantir filtro correto
+            queryset = queryset.filter(
+                timestamp__gte=start_time,
+                timestamp__lte=now
+            )
 
         # Prepara a data local para exibir no cabeçalho do arquivo
         now_local = timezone.localtime(now)
@@ -154,11 +179,8 @@ class MetricViewSet(viewsets.ModelViewSet):
             ws.append(["Data/Hora", "Host", "Tipo", "Valor (%)"])
             
             for m in queryset:
-                # CONVERSÃO CRUCIAL: De UTC para Local Time
                 local_ts = timezone.localtime(m.timestamp)
-                # Remove info de fuso para o Excel não reclamar (tz-naive)
                 ts_naive = local_ts.replace(tzinfo=None)
-                
                 ws.append([ts_naive, m.host.hostname, m.metric_type, m.value])
             
             wb.save(response)
@@ -175,7 +197,6 @@ class MetricViewSet(viewsets.ModelViewSet):
             p.drawString(50, 800, "Relatório de Monitoramento")
             
             p.setFont("Helvetica", 10)
-            # Usa hora local no cabeçalho
             p.drawString(50, 780, f"Gerado em: {now_local.strftime('%d/%m/%Y %H:%M')}")
             
             y = 750
@@ -185,11 +206,11 @@ class MetricViewSet(viewsets.ModelViewSet):
             p.drawString(450, y, "Valor")
             y -= 20
             
-            for m in queryset[:1000]: # Limite de segurança
+            for m in queryset[:1000]:
                 if y < 50:
-                    p.showPage(); y = 750
+                    p.showPage()
+                    y = 750
                     
-                # CONVERSÃO CRUCIAL: De UTC para Local Time antes de imprimir
                 local_ts = timezone.localtime(m.timestamp)
                 ts_str = local_ts.strftime('%d/%m %H:%M')
                 
@@ -204,15 +225,21 @@ class MetricViewSet(viewsets.ModelViewSet):
             return HttpResponse(buffer, content_type='application/pdf')
 
         # ==========================================
-        # RETORNO JSON (Para o Dashboard)
+        # RETORNO JSON (Para o Dashboard) - FIX PRINCIPAL
         # ==========================================
         else:
+            # FIX: Logging para debug
+            items = list(queryset)
+            print(f"[report JSON] Retornando {len(items)} itens para {range_param}")
+            if items:
+                print(f"   Primeiro: {items[0].timestamp} = {items[0].value}%")
+                print(f"   Último: {items[-1].timestamp} = {items[-1].value}%")
+            
             data = [{
                 "hostname": m.host.hostname,
                 "metric_type": m.metric_type,
                 "value": m.value,
-                # ISO format já carrega o fuso correto se configurado no settings, 
-                # mas o JS geralmente converte para local do browser.
                 "timestamp": m.timestamp.isoformat() 
-            } for m in queryset]
+            } for m in items]
+            
             return Response({"report": data})
