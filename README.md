@@ -347,30 +347,6 @@ sudo systemctl status monitor-agent
 
 ## 📡 Endpoints da API
 
-### Hosts
-
-```bash
-# Listar todos
-GET /api/hosts/
-
-# Criar
-POST /api/hosts/
-{
-  "hostname": "novo-servidor",
-  "ip": "192.168.1.200",
-  "description": "Descrição"
-}
-
-# Detalhes
-GET /api/hosts/{id}/
-
-# Atualizar
-PUT /api/hosts/{id}/
-
-# Deletar
-DELETE /api/hosts/{id}/
-```
-
 ### Métricas
 
 ```bash
