@@ -320,21 +320,15 @@ Crie `/etc/systemd/system/monitor-agent.service`:
 
 ```ini
 [Unit]
-Description=Monitor Agent - Coleta de Métricas
+Description=Agente de Monitoramento - Envia métricas ao servidor
 After=network-online.target
-Wants=network-online.target
 
 [Service]
 Type=simple
-User=monitor-agent
-WorkingDirectory=/opt/monitor-agent
-Environment="PATH=/opt/monitor-agent/venv/bin"
-ExecStart=/opt/monitor-agent/venv/bin/python /opt/monitor-agent/agent.py \
-  --api http://192.168.1.10:8000/api/metrics/ingest/ \
-  --samples 5 \
-  --interval 10 \
-  --hostname producao-01
-
+User=aluno
+Group=aluno
+WorkingDirectory=/home/aluno/monitor-agent
+ExecStart=/home/aluno/monitor-agent/.venv/bin/python /home/aluno/monitor-agent/agent.py --api "http://127.0.0.1:8000/api/metrics/ingest/"
 Restart=always
 RestartSec=10
 
