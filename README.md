@@ -216,7 +216,7 @@ pip install -r requirements.txt
 #### 2. Teste o agente
 
 ```bash
-python agent.py --api http://localhost:8000/api/metrics/ingest/ --samples 3 --interval 5
+python agent.py --api http://localhost:8000/api/metrics/ingest/
 ```
 
 ## ⚙️ Configuração
