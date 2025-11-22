@@ -22,8 +22,8 @@ def dashboard(request):
 
 def generate_report(request):
     """
-    Gera relatórios em PDF ou XLSX baseado nos query params
-    CRÍTICO: NOW como referência final do intervalo
+    ✅ CORREÇÃO: Gera relatórios em PDF ou XLSX com timezone correto
+    CRÍTICO: NOW sempre UTC-aware para queries no banco
     """
     host_id = request.GET.get("host")
     range_param = request.GET.get("range", "24h")
@@ -40,30 +40,32 @@ def generate_report(request):
     except Host.DoesNotExist:
         return HttpResponse("Host não encontrado", status=404)
 
-    # CRÍTICO: NOW como referência final
+    # ✅ NOW sempre UTC-aware para queries
     now = timezone.now()
     
     print(f"\n{'='*80}")
     print(f"[GENERATE_REPORT] Range: {range_param}")
-    print(f"[GENERATE_REPORT] NOW: {now}")
+    print(f"[GENERATE_REPORT] NOW (UTC): {now}")
+    print(f"[GENERATE_REPORT] NOW (Local): {timezone.localtime(now)}")
     
     if range_param == 'custom' and start_custom and end_custom:
         try:
             start_time = parse_datetime(start_custom)
             end_time = parse_datetime(end_custom)
             
+            # ✅ Garantir que são timezone-aware
             if start_time and timezone.is_naive(start_time):
                 start_time = timezone.make_aware(start_time)
             if end_time and timezone.is_naive(end_time):
                 end_time = timezone.make_aware(end_time)
                 
-            print(f"[GENERATE_REPORT] CUSTOM: {start_time} até {end_time}")
+            print(f"[GENERATE_REPORT] CUSTOM (UTC): {start_time} até {end_time}")
         except ValueError:
             start_time = now - timedelta(hours=24)
             end_time = now
             print(f"[GENERATE_REPORT] Erro parsing custom, usando 24h padrão")
     else:
-        # Presets com NOW como referência final
+        # ✅ Presets com NOW em UTC
         end_time = now
         
         if range_param == '1h':
@@ -75,11 +77,11 @@ def generate_report(request):
         else:  # 24h default
             start_time = now - timedelta(hours=24)
         
-        print(f"[GENERATE_REPORT] START: {start_time}")
-        print(f"[GENERATE_REPORT] END: {end_time}")
+        print(f"[GENERATE_REPORT] START (UTC): {start_time}")
+        print(f"[GENERATE_REPORT] END (UTC): {end_time}")
         print(f"[GENERATE_REPORT] Diferença: {(end_time - start_time).total_seconds() / 3600:.1f} horas")
 
-    # Busca no banco com filtro correto
+    # ✅ Busca no banco com filtro correto (UTC-aware)
     metrics = Metric.objects.filter(
         host=host,
         timestamp__gte=start_time,
@@ -90,12 +92,12 @@ def generate_report(request):
     print(f"[GENERATE_REPORT] Total encontrado: {count}")
     print(f"{'='*80}\n")
 
-    # PREPARAÇÃO DOS DADOS (CONVERSÃO PARA LOCAL TIME)
+    # PREPARAÇÃO DOS DADOS (CONVERSÃO PARA LOCAL TIME apenas para exibição)
     cpu_data = []
     memory_data = []
 
     for m in metrics:
-        # Converte de UTC (Banco) para Local (Brasil)
+        # ✅ Converte de UTC (Banco) para Local (Brasil) APENAS para exibição
         local_ts = timezone.localtime(m.timestamp)
         
         if m.metric_type == 'cpu_percent':
@@ -396,6 +398,7 @@ def generate_pdf_report(host, cpu_data, memory_data, range_param):
     doc.build(story)
     output.seek(0)
     
+    now_local = timezone.localtime(timezone.now())
     filename = f"relatorio_{host.hostname}_{now_local.strftime('%Y%m%d_%H%M')}.pdf"
     response = HttpResponse(output.getvalue(), content_type='application/pdf')
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
@@ -403,8 +406,8 @@ def generate_pdf_report(host, cpu_data, memory_data, range_param):
 
 def report(request):
     """
-    Retorna JSON para o Dashboard com filtro temporal CORRETO
-    CRÍTICO: NOW como referência final do intervalo
+    ✅ CORREÇÃO: Retorna JSON para o Dashboard com filtro temporal CORRETO
+    CRÍTICO: NOW sempre UTC-aware para queries
     """
     host = request.GET.get("host")
     range_param = request.GET.get("range", "24h")
@@ -414,14 +417,15 @@ def report(request):
     if host:
         qs = qs.filter(host_id=host)
 
-    # CRÍTICO: NOW como referência final
+    # ✅ NOW sempre UTC-aware para queries no banco
     now = timezone.now()
     
     print(f"\n{'='*80}")
     print(f"[REPORT JSON] Range: {range_param}")
-    print(f"[REPORT JSON] NOW: {now}")
+    print(f"[REPORT JSON] NOW (UTC): {now}")
+    print(f"[REPORT JSON] NOW (Local): {timezone.localtime(now)}")
     
-    # Calcula START baseado em NOW
+    # ✅ Calcula START baseado em NOW (UTC)
     if range_param == '1h':
         start_time = now - timedelta(hours=1)
     elif range_param == '6h':
@@ -431,10 +435,11 @@ def report(request):
     else:
         start_time = now - timedelta(hours=24)
 
-    print(f"[REPORT JSON] START: {start_time}")
-    print(f"[REPORT JSON] END: {now}")
+    print(f"[REPORT JSON] START (UTC): {start_time}")
+    print(f"[REPORT JSON] END (UTC): {now}")
     print(f"[REPORT JSON] Diferença: {(now - start_time).total_seconds() / 3600:.1f} horas")
 
+    # ✅ Filtro com NOW como referência
     qs = qs.filter(timestamp__gte=start_time, timestamp__lte=now)
     
     count = qs.count()
