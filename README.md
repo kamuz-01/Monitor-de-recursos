@@ -1,6 +1,6 @@
 # Monitor de Recursos 📊
-> [!NOTA]
-> asçdgmças~dgmasmdg~mnsadf~glas~d
+> [!NOTE]
+FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
 
 Um sistema de monitoramento leve escrito em python focado na coleta, armazenamento e visualização de métricas de uso **_(CPU e Memória RAM)_**.
 
