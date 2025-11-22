@@ -33,14 +33,15 @@ class MetricViewSet(viewsets.ModelViewSet):
         if metric_type:
             queryset = queryset.filter(metric_type=metric_type)
 
-        # CORRIGIDO: Usar timezone.now() que retorna UTC aware
+        # ✅ CORREÇÃO: Usar timezone.now() que SEMPRE retorna UTC-aware
         now = timezone.now()
         
         print(f"\n{'='*80}")
         print(f"[FILTRO] Intervalo solicitado: {range_param}")
         print(f"[FILTRO] NOW (UTC): {now}")
+        print(f"[FILTRO] NOW (Local): {timezone.localtime(now)}")
         
-        # Calcula start_time baseado em NOW
+        # Calcula start_time baseado em NOW (UTC-aware)
         if range_param == '1h':
             start_time = now - timedelta(hours=1)
         elif range_param == '6h':
@@ -52,12 +53,12 @@ class MetricViewSet(viewsets.ModelViewSet):
         else:
             start_time = now - timedelta(hours=24)
 
-        print(f"[FILTRO] START_TIME: {start_time}")
-        print(f"[FILTRO] END_TIME: {now}")
+        print(f"[FILTRO] START_TIME (UTC): {start_time}")
+        print(f"[FILTRO] END_TIME (UTC): {now}")
         print(f"[FILTRO] Diferença: {(now - start_time).total_seconds() / 3600:.1f} horas")
         print(f"{'='*80}\n")
 
-        # Filtro com range inclusivo
+        # ✅ Filtro correto com ambos os limites inclusivos
         filtered = queryset.filter(
             timestamp__gte=start_time,
             timestamp__lte=now
@@ -125,8 +126,8 @@ class MetricViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def report(self, request):
         """
-        Gera JSON (padrão para gráficos) ou Arquivo (PDF/Excel) para download.
-        CRÍTICO: Usar NOW como referência final e calcular intervalo exato
+        ✅ CORREÇÃO: Gera JSON/Arquivo mantendo timezone correto
+        CRÍTICO: NOW sempre em UTC para queries no banco
         """
         host_id = request.query_params.get('host')
         metric_type = request.query_params.get('metric_type')
@@ -143,24 +144,31 @@ class MetricViewSet(viewsets.ModelViewSet):
         if metric_type:
             queryset = queryset.filter(metric_type=metric_type)
 
-        # CRÍTICO: NOW como referência de FIM do intervalo
+        # ✅ NOW sempre UTC-aware para queries
         now = timezone.now()
         
         print(f"\n{'='*80}")
         print(f"[REPORT] Range: {range_param}")
-        print(f"[REPORT] NOW: {now}")
+        print(f"[REPORT] NOW (UTC): {now}")
+        print(f"[REPORT] NOW (Local): {timezone.localtime(now)}")
         
         if range_param == 'custom' and start_date_str and end_date_str:
             try:
                 start_time = parse_datetime(start_date_str)
                 end_time = parse_datetime(end_date_str)
                 if start_time and end_time:
+                    # ✅ Garantir que são aware
+                    if timezone.is_naive(start_time):
+                        start_time = timezone.make_aware(start_time)
+                    if timezone.is_naive(end_time):
+                        end_time = timezone.make_aware(end_time)
+                    
                     queryset = queryset.filter(timestamp__range=(start_time, end_time))
                     print(f"[REPORT] CUSTOM: {start_time} até {end_time}")
             except ValueError:
                 pass
         else:
-            # Calcula intervalo EXATO
+            # ✅ Calcula intervalo EXATO em UTC
             if range_param == '1h': 
                 start_time = now - timedelta(hours=1)
             elif range_param == '6h': 
@@ -172,11 +180,11 @@ class MetricViewSet(viewsets.ModelViewSet):
             else: 
                 start_time = now - timedelta(hours=24)
             
-            print(f"[REPORT] START: {start_time}")
-            print(f"[REPORT] END: {now}")
+            print(f"[REPORT] START (UTC): {start_time}")
+            print(f"[REPORT] END (UTC): {now}")
             print(f"[REPORT] Diferença: {(now - start_time).total_seconds() / 3600:.1f} horas")
             
-            # Filtro com range inclusivo em AMBAS as extremidades
+            # ✅ Filtro inclusivo em ambas as extremidades
             queryset = queryset.filter(
                 timestamp__gte=start_time,
                 timestamp__lte=now
@@ -186,6 +194,7 @@ class MetricViewSet(viewsets.ModelViewSet):
         print(f"[REPORT] Total encontrado: {queryset.count()}")
         print(f"{'='*80}\n")
 
+        # ✅ Para exibição, converter para local time
         now_local = timezone.localtime(now)
 
         # EXPORTAÇÃO EXCEL
