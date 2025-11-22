@@ -33,34 +33,44 @@ class MetricViewSet(viewsets.ModelViewSet):
         if metric_type:
             queryset = queryset.filter(metric_type=metric_type)
 
-        # FIX: Cálculo explícito do tempo de início
+        # CORRIGIDO: Usar timezone.now() que retorna UTC aware
         now = timezone.now()
         
-        # Determina o intervalo EXATAMENTE
+        print(f"\n{'='*80}")
+        print(f"[FILTRO] Intervalo solicitado: {range_param}")
+        print(f"[FILTRO] NOW (UTC): {now}")
+        
+        # Calcula start_time baseado em NOW
         if range_param == '1h':
             start_time = now - timedelta(hours=1)
-            print(f"[1h] Filtrando de {start_time} até {now}")
         elif range_param == '6h':
             start_time = now - timedelta(hours=6)
-            print(f"[6h] Filtrando de {start_time} até {now}")
         elif range_param == '24h':
             start_time = now - timedelta(hours=24)
-            print(f"[24h] Filtrando de {start_time} até {now}")
         elif range_param == '7d':
             start_time = now - timedelta(days=7)
-            print(f"[7d] Filtrando de {start_time} até {now}")
         else:
             start_time = now - timedelta(hours=24)
-            print(f"[default 24h] Filtrando de {start_time} até {now}")
 
-        # FIX CRÍTICO: Usa __gte e __lte para garantir inclusão correta
+        print(f"[FILTRO] START_TIME: {start_time}")
+        print(f"[FILTRO] END_TIME: {now}")
+        print(f"[FILTRO] Diferença: {(now - start_time).total_seconds() / 3600:.1f} horas")
+        print(f"{'='*80}\n")
+
+        # Filtro com range inclusivo
         filtered = queryset.filter(
             timestamp__gte=start_time,
             timestamp__lte=now
         ).select_related('host').order_by('timestamp')
         
         count = filtered.count()
-        print(f"[{range_param}] Total de registros encontrados: {count}")
+        print(f"[RESULTADO] Total de registros encontrados: {count}")
+        
+        if count > 0:
+            first = filtered.first()
+            last = filtered.last()
+            print(f"[RESULTADO] Primeiro: {first.timestamp}")
+            print(f"[RESULTADO] Último: {last.timestamp}")
         
         return filtered
 
@@ -70,7 +80,6 @@ class MetricViewSet(viewsets.ModelViewSet):
         items = data if isinstance(data, list) else [data]
         created = 0
         
-        # Cache simples para não buscar o Host repetidamente no mesmo loop
         hosts_cache = {}
 
         for item in items:
@@ -83,7 +92,6 @@ class MetricViewSet(viewsets.ModelViewSet):
             if not hostname or not metric_type or value is None:
                 continue
 
-            # Lógica de Atualização do Host
             if hostname not in hosts_cache:
                 host, _ = Host.objects.get_or_create(hostname=hostname)
                 if ip and host.ip != ip:
@@ -118,7 +126,7 @@ class MetricViewSet(viewsets.ModelViewSet):
     def report(self, request):
         """
         Gera JSON (padrão para gráficos) ou Arquivo (PDF/Excel) para download.
-        FIX: Garante conversão correta de timezone e diferenciação de intervalos
+        CRÍTICO: Usar NOW como referência final e calcular intervalo exato
         """
         host_id = request.query_params.get('host')
         metric_type = request.query_params.get('metric_type')
@@ -135,8 +143,12 @@ class MetricViewSet(viewsets.ModelViewSet):
         if metric_type:
             queryset = queryset.filter(metric_type=metric_type)
 
-        # --- Lógica de Filtro de Tempo (CORRIGIDA) ---
+        # CRÍTICO: NOW como referência de FIM do intervalo
         now = timezone.now()
+        
+        print(f"\n{'='*80}")
+        print(f"[REPORT] Range: {range_param}")
+        print(f"[REPORT] NOW: {now}")
         
         if range_param == 'custom' and start_date_str and end_date_str:
             try:
@@ -144,31 +156,39 @@ class MetricViewSet(viewsets.ModelViewSet):
                 end_time = parse_datetime(end_date_str)
                 if start_time and end_time:
                     queryset = queryset.filter(timestamp__range=(start_time, end_time))
+                    print(f"[REPORT] CUSTOM: {start_time} até {end_time}")
             except ValueError:
                 pass
         else:
-            # FIX: Cálculo explícito do intervalo
+            # Calcula intervalo EXATO
             if range_param == '1h': 
                 start_time = now - timedelta(hours=1)
             elif range_param == '6h': 
                 start_time = now - timedelta(hours=6)
+            elif range_param == '24h':
+                start_time = now - timedelta(hours=24)
             elif range_param == '7d': 
                 start_time = now - timedelta(days=7)
             else: 
                 start_time = now - timedelta(hours=24)
             
-            # FIX: Usa __gte e __lte para garantir filtro correto
+            print(f"[REPORT] START: {start_time}")
+            print(f"[REPORT] END: {now}")
+            print(f"[REPORT] Diferença: {(now - start_time).total_seconds() / 3600:.1f} horas")
+            
+            # Filtro com range inclusivo em AMBAS as extremidades
             queryset = queryset.filter(
                 timestamp__gte=start_time,
                 timestamp__lte=now
             )
 
-        # Prepara a data local para exibir no cabeçalho do arquivo
+        queryset = queryset.order_by('timestamp')
+        print(f"[REPORT] Total encontrado: {queryset.count()}")
+        print(f"{'='*80}\n")
+
         now_local = timezone.localtime(now)
 
-        # ==========================================
         # EXPORTAÇÃO EXCEL
-        # ==========================================
         if fmt == 'excel':
             response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
             response['Content-Disposition'] = f'attachment; filename="relatorio_{now_local.strftime("%Y%m%d_%H%M")}.xlsx"'
@@ -186,9 +206,7 @@ class MetricViewSet(viewsets.ModelViewSet):
             wb.save(response)
             return response
 
-        # ==========================================
         # EXPORTAÇÃO PDF
-        # ==========================================
         elif fmt == 'pdf':
             buffer = io.BytesIO()
             p = canvas.Canvas(buffer, pagesize=A4)
@@ -224,16 +242,9 @@ class MetricViewSet(viewsets.ModelViewSet):
             buffer.seek(0)
             return HttpResponse(buffer, content_type='application/pdf')
 
-        # ==========================================
-        # RETORNO JSON (Para o Dashboard) - FIX PRINCIPAL
-        # ==========================================
+        # RETORNO JSON (Para o Dashboard)
         else:
-            # FIX: Logging para debug
             items = list(queryset)
-            print(f"[report JSON] Retornando {len(items)} itens para {range_param}")
-            if items:
-                print(f"   Primeiro: {items[0].timestamp} = {items[0].value}%")
-                print(f"   Último: {items[-1].timestamp} = {items[-1].value}%")
             
             data = [{
                 "hostname": m.host.hostname,
