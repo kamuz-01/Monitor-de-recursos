@@ -120,7 +120,7 @@ function renderChartWithEMA(canvasId, label, labels, values, colorLine, colorEMA
     // Limita ticks de acordo com o intervalo
     let maxTicksLimit = 30;
     if (range === '7d') {
-        maxTicksLimit = 100;
+        maxTicksLimit = 42;
     } else if (range === '24h') {
         maxTicksLimit = 50;
     } else if (range === '6h') {
