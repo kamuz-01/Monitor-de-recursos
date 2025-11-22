@@ -187,12 +187,38 @@ function renderChartWithEMA(canvasId, label, labels, values, colorLine, colorEMA
             },
             plugins: {
                 legend: {
-                    position: 'top',
-                    labels: {
-                        usePointStyle: true,
-                        padding: 20
-                    }
-                },
+		    position: 'top',
+		    labels: {
+			usePointStyle: false,  // ← NÃO usar círculo
+			padding: 20,
+
+			generateLabels(chart) {
+			    const labels = Chart.defaults.plugins.legend.labels.generateLabels(chart);
+
+			    labels.forEach(label => {
+				const ds = chart.data.datasets[label.datasetIndex];
+
+				// Se for EMA → mostra caixinha tracejada
+				if (ds.label.includes("(EMA)")) {
+				    label.lineWidth = 2;
+				    label.strokeStyle = ds.borderColor;
+				    label.fillStyle = "transparent";
+				    label.lineDash = [6, 4];   // ← tracejado
+				    label.pointStyle = false;  // ← remove bolinha
+				} else {
+				    // Linha real volta ao padrão
+				    label.lineWidth = 2;
+				    label.strokeStyle = ds.borderColor;
+				    label.fillStyle = ds.borderColor;
+				    label.lineDash = [];
+				    label.pointStyle = false;
+				}
+			    });
+
+			    return labels;
+			}
+		    }
+		},
                 zoom: {
                     limits: {
                         x: {
