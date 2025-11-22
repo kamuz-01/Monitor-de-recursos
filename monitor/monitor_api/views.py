@@ -23,12 +23,12 @@ def dashboard(request):
 def generate_report(request):
     """
     Gera relatórios em PDF ou XLSX baseado nos query params
+    CRÍTICO: NOW como referência final do intervalo
     """
     host_id = request.GET.get("host")
     range_param = request.GET.get("range", "24h")
     format_param = request.GET.get("format", "xlsx")
     
-    # Datas personalizadas (opcional)
     start_custom = request.GET.get("start_date")
     end_custom = request.GET.get("end_date")
 
@@ -40,53 +40,62 @@ def generate_report(request):
     except Host.DoesNotExist:
         return HttpResponse("Host não encontrado", status=404)
 
-    # ---------------------------------------------------------
-    # LÓGICA DE FILTRO DE TEMPO (CONSIDERANDO TIMEZONE)
-    # ---------------------------------------------------------
-    now = timezone.now() # UTC aware
+    # CRÍTICO: NOW como referência final
+    now = timezone.now()
     
-    # Se tiver datas customizadas, usa elas
+    print(f"\n{'='*80}")
+    print(f"[GENERATE_REPORT] Range: {range_param}")
+    print(f"[GENERATE_REPORT] NOW: {now}")
+    
     if range_param == 'custom' and start_custom and end_custom:
         try:
             start_time = parse_datetime(start_custom)
             end_time = parse_datetime(end_custom)
             
-            # Se não vier com timezone, assume o do settings (America/Sao_Paulo)
             if start_time and timezone.is_naive(start_time):
                 start_time = timezone.make_aware(start_time)
             if end_time and timezone.is_naive(end_time):
                 end_time = timezone.make_aware(end_time)
                 
+            print(f"[GENERATE_REPORT] CUSTOM: {start_time} até {end_time}")
         except ValueError:
             start_time = now - timedelta(hours=24)
             end_time = now
+            print(f"[GENERATE_REPORT] Erro parsing custom, usando 24h padrão")
     else:
-        # Presets
+        # Presets com NOW como referência final
         end_time = now
+        
         if range_param == '1h':
             start_time = now - timedelta(hours=1)
         elif range_param == '6h':
             start_time = now - timedelta(hours=6)
         elif range_param == '7d':
             start_time = now - timedelta(days=7)
-        else: # 24h default
+        else:  # 24h default
             start_time = now - timedelta(hours=24)
+        
+        print(f"[GENERATE_REPORT] START: {start_time}")
+        print(f"[GENERATE_REPORT] END: {end_time}")
+        print(f"[GENERATE_REPORT] Diferença: {(end_time - start_time).total_seconds() / 3600:.1f} horas")
 
-    # Busca no banco
+    # Busca no banco com filtro correto
     metrics = Metric.objects.filter(
         host=host,
         timestamp__gte=start_time,
         timestamp__lte=end_time
     ).order_by('timestamp')
 
-    # ---------------------------------------------------------
+    count = metrics.count()
+    print(f"[GENERATE_REPORT] Total encontrado: {count}")
+    print(f"{'='*80}\n")
+
     # PREPARAÇÃO DOS DADOS (CONVERSÃO PARA LOCAL TIME)
-    # ---------------------------------------------------------
     cpu_data = []
     memory_data = []
 
     for m in metrics:
-        # CRUCIAL: Converte de UTC (Banco) para Local (Brasil)
+        # Converte de UTC (Banco) para Local (Brasil)
         local_ts = timezone.localtime(m.timestamp)
         
         if m.metric_type == 'cpu_percent':
@@ -303,7 +312,7 @@ def generate_xlsx_report(host, cpu_data, memory_data, range_param):
     wb.save(output)
     output.seek(0)
 
-    filename = f"relatorio_{host.hostname}_{now_local.strftime('%Y%m%d_%H%M')}.xlsx"
+    filename = f"relatorio_{host.hostname}_{timezone.localtime(timezone.now()).strftime('%Y%m%d_%H%M')}.xlsx"
     response = HttpResponse(output.getvalue(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
     return response
@@ -336,13 +345,10 @@ def generate_pdf_report(host, cpu_data, memory_data, range_param):
     if not cpu_data:
         story.append(Paragraph("Sem dados para o período selecionado.", styles['Normal']))
     else:
-        # Dados da tabela (Cabeçalho + Linhas)
         data = [['Data/Hora', 'Valor (%)']]
-        # Limita a 500 linhas para não quebrar PDF em testes de carga
         for ts, val in cpu_data[:500]: 
             data.append([ts.strftime('%d/%m/%Y %H:%M:%S'), f"{val:.2f}%"])
 
-        # Estatísticas
         vals = [v for _, v in cpu_data]
         data.append(['Mínimo', f"{min(vals):.2f}%"])
         data.append(['Máximo', f"{max(vals):.2f}%"])
@@ -355,7 +361,6 @@ def generate_pdf_report(host, cpu_data, memory_data, range_param):
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            # Destaque para estatísticas no final
             ('BACKGROUND', (0, -3), (-1, -1), colors.lightgrey),
         ]))
         story.append(t)
@@ -396,34 +401,52 @@ def generate_pdf_report(host, cpu_data, memory_data, range_param):
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
     return response
 
-# Mantém a view original 'report' para o JSON do gráfico
 def report(request):
+    """
+    Retorna JSON para o Dashboard com filtro temporal CORRETO
+    CRÍTICO: NOW como referência final do intervalo
+    """
     host = request.GET.get("host")
-    start = request.GET.get("start")
-    end = request.GET.get("end")
     range_param = request.GET.get("range", "24h")
 
-    # Lógica de Filtro para o Gráfico (JSON)
     qs = Metric.objects.all().order_by('timestamp')
     
     if host:
         qs = qs.filter(host_id=host)
 
+    # CRÍTICO: NOW como referência final
     now = timezone.now()
-    if start and end: # Custom
-        qs = qs.filter(timestamp__range=(start, end))
-    else: # Preset
-        if range_param == '1h': delta = timedelta(hours=1)
-        elif range_param == '6h': delta = timedelta(hours=6)
-        elif range_param == '7d': delta = timedelta(days=7)
-        else: delta = timedelta(hours=24)
-        qs = qs.filter(timestamp__gte=now - delta)
+    
+    print(f"\n{'='*80}")
+    print(f"[REPORT JSON] Range: {range_param}")
+    print(f"[REPORT JSON] NOW: {now}")
+    
+    # Calcula START baseado em NOW
+    if range_param == '1h':
+        start_time = now - timedelta(hours=1)
+    elif range_param == '6h':
+        start_time = now - timedelta(hours=6)
+    elif range_param == '7d':
+        start_time = now - timedelta(days=7)
+    else:
+        start_time = now - timedelta(hours=24)
+
+    print(f"[REPORT JSON] START: {start_time}")
+    print(f"[REPORT JSON] END: {now}")
+    print(f"[REPORT JSON] Diferença: {(now - start_time).total_seconds() / 3600:.1f} horas")
+
+    qs = qs.filter(timestamp__gte=start_time, timestamp__lte=now)
+    
+    count = qs.count()
+    print(f"[REPORT JSON] Total encontrado: {count}")
+    print(f"{'='*80}\n")
 
     data = [
         {
-            "timestamp": m.timestamp.isoformat(), # ISO envia o fuso correto pro JS desenhar
+            "timestamp": m.timestamp.isoformat(),
             "metric_type": m.metric_type,
             "value": m.value
         } for m in qs
     ]
+    
     return JsonResponse({"report": data}, safe=False)
