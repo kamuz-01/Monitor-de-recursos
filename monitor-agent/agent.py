@@ -12,6 +12,7 @@ import uuid
 from pathlib import Path
 
 AGENT_ID_FILE = "/var/lib/monitor-agent/agent_id.txt"
+PENDING_QUEUE_FILE = "/var/lib/monitor-agent/pending_metrics.json"  # ← NOVO
 
 def ensure_directories():
     Path("/var/lib/monitor-agent").mkdir(parents=True, exist_ok=True)
@@ -31,7 +32,6 @@ def get_real_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.settimeout(0.1)
     try:
-        # Não precisa ser alcançável, apenas para o SO decidir a rota
         s.connect(('10.254.254.254', 1))
         IP = s.getsockname()[0]
     except Exception:
@@ -45,15 +45,38 @@ def collect_sample():
     memory_percent = psutil.virtual_memory().percent
     return cpu_percent, memory_percent
 
-# buffer para guardar métricas caso a API falhe
-pending = []
+# ===== NOVO: Gerenciar fila em disco =====
+
+def load_pending_from_disk():
+    """Carrega métricas não enviadas do arquivo no disco."""
+    if os.path.exists(PENDING_QUEUE_FILE):
+        try:
+            with open(PENDING_QUEUE_FILE, "r") as f:
+                pending = json.load(f)
+                if pending:
+                    print(f"[DISCO] Carregadas {len(pending)} métricas do arquivo de fila")
+                return pending
+        except Exception as e:
+            print(f"[ERRO] Falha ao ler fila do disco: {e}")
+            return []
+    return []
+
+def save_pending_to_disk(pending):
+    """Persiste métricas não enviadas em disco."""
+    try:
+        with open(PENDING_QUEUE_FILE, "w") as f:
+            json.dump(pending, f)
+            if pending:
+                print(f"[DISCO] {len(pending)} métricas guardadas no arquivo")
+    except Exception as e:
+        print(f"[ERRO] Falha ao salvar fila em disco: {e}")
 
 def format_metric(hostname, ip, ts, cpu, mem):
     """Converte dados no formato que o Django espera."""
     return [
         {
             "hostname": hostname,
-            "ip": ip,  # <--- Enviando o IP real
+            "ip": ip,
             "metric_type": "cpu_percent",
             "timestamp": ts,
             "value": cpu
@@ -90,11 +113,12 @@ def run_loop(api_url, hostname=None, interval=60):
     print(f"[IP REAL] {real_ip}")
     print(f"[ID] {machine_id}")
     print(f"[Intervalo] {interval}s")
+    print(f"[FILA DISCO] {PENDING_QUEUE_FILE}")
 
-    global pending
+    # ===== NOVO: Carregar fila do disco ao iniciar =====
+    pending = load_pending_from_disk()
 
     while True:
-        # Atualiza IP a cada ciclo (caso mude a rede)
         current_ip = get_real_ip()
         
         cpu, mem = collect_sample()
@@ -104,15 +128,21 @@ def run_loop(api_url, hostname=None, interval=60):
 
         print(f"[{datetime.now().strftime('%H:%M:%S')}] IP={current_ip} CPU={cpu:.1f}% MEM={mem:.1f}%")
 
-        # junta buffer antigo + métrica nova
+        # Junta buffer antigo + métrica nova
         to_send = pending + batch
         ok = send_to_api(api_url, to_send)
 
         if ok:
-            pending = [] 
+            pending = []  # Limpa fila em memória
+            # ===== NOVO: Apagar arquivo de fila após sucesso =====
+            if os.path.exists(PENDING_QUEUE_FILE):
+                os.remove(PENDING_QUEUE_FILE)
+                print("[DISCO] Arquivo de fila removido após sucesso")
         else:
             print("[BUFFER] Guardando métricas não enviadas")
             pending += batch
+            # ===== NOVO: Persist para disco =====
+            save_pending_to_disk(pending)
 
         time.sleep(interval)
 
