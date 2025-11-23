@@ -1,29 +1,53 @@
 let cpuChart = null;
 let memoryChart = null;
-let lastLoadedRange = null; // Rastreia o último intervalo carregado
+let lastLoadedRange = null;
 
 /* ===== DEBUG: Log para verificar carregamento ===== */
 function debugLog(msg) {
     console.log(`[MONITOR ${new Date().toLocaleTimeString()}] ${msg}`);
 }
 
+/* ===== CONFIGURAÇÃO: Hosts a Ocultar ===== */
+const HIDDEN_HOSTS = ['teste-01', 'teste-02', 'teste-03', 'test', 'demo'];
+
+function shouldHideHost(hostname) {
+    return HIDDEN_HOSTS.some(pattern => 
+        hostname.toLowerCase().includes(pattern.toLowerCase())
+    );
+}
+
 /* ===== Carrega lista de hosts ===== */
 async function loadHosts() {
     try {
+        debugLog("Carregando hosts...");
         const res = await fetch("/api/hosts/");
         const data = await res.json();
         const sel = document.getElementById("hostSelect");
         sel.innerHTML = "";
 
-        data.forEach(h => {
+        // Filtra hosts ocultos
+        const visibleHosts = data.filter(h => !shouldHideHost(h.hostname));
+        
+        debugLog(`Total: ${data.length}, Visíveis: ${visibleHosts.length}`);
+
+        visibleHosts.forEach(h => {
             sel.insertAdjacentHTML(
                 "beforeend",
                 `<option value="${h.id}">${h.hostname}</option>`
             );
         });
+        
+        if (visibleHosts.length === 0) {
+            document.getElementById("cpuStats").textContent = "Nenhum host disponível";
+            document.getElementById("memoryStats").textContent = "Nenhum host disponível";
+        } else {
+            // Seleciona o primeiro host visível por padrão
+            loadDashboard();
+        }
 
     } catch (error) {
         console.error("Erro ao carregar hosts:", error);
+        document.getElementById("cpuStats").textContent = "Erro ao carregar hosts";
     }
 }
 
@@ -46,7 +70,7 @@ function formatTimestamp(isoString, range) {
             return date.toLocaleTimeString("pt-BR", { 
                 hour: '2-digit', 
                 minute: '2-digit',
-                second: '2-digit'  // Adiciona segundos para 1h/6h
+                second: '2-digit'
             });
         } else if (range === '24h') {
             return date.toLocaleString("pt-BR", { 
@@ -71,11 +95,12 @@ function formatTimestamp(isoString, range) {
 /* ===== Carrega métricas com anti-cache agressivo ===== */
 async function loadMetrics(hostId, range, metricType) {
     try {
-        // Gera um random token único para cada requisição (anti-cache)
+        // Gera token único para anti-cache
         const randomToken = Math.random().toString(36).substring(2, 15);
-        const url = `/api/metrics/report/?host=${hostId}&metric_type=${metricType}&range=${range}&t=${Date.now()}&rand=${randomToken}`;
+        const timestamp = Date.now();
+        const url = `/api/metrics/report/?host=${hostId}&metric_type=${metricType}&range=${range}&t=${timestamp}&rand=${randomToken}`;
         
-        debugLog(`Buscando ${metricType} para ${range}: ${url}`);
+        debugLog(`Buscando ${metricType} para range ${range}...`);
 
         const res = await fetch(url, {
             method: 'GET',
@@ -86,19 +111,40 @@ async function loadMetrics(hostId, range, metricType) {
             }
         });
         
-        if (!res.ok) throw new Error(`Erro HTTP ${res.status}`);
+        if (!res.ok) {
+            console.error(`Erro HTTP ${res.status}`);
+            return [];
+        }
+        
         const json = await res.json();
+        debugLog(`Response recebido: ${JSON.stringify(json).substring(0, 100)}...`);
 
         let items = [];
-        if (json.items) items = json.items;
-        else if (json.report) items = json.report;
-        else if (json[metricType]) items = json[metricType];
+        
+        // Tenta diferentes formatos de resposta
+        if (json.report && Array.isArray(json.report)) {
+            items = json.report;
+            debugLog(`✅ Formato 'report' - ${items.length} items`);
+        } else if (Array.isArray(json)) {
+            items = json;
+            debugLog(`✅ Formato array - ${items.length} items`);
+        } else if (json.items && Array.isArray(json.items)) {
+            items = json.items;
+            debugLog(`✅ Formato 'items' - ${items.length} items`);
+        } else {
+            console.error("Formato desconhecido:", json);
+            return [];
+        }
 
-        debugLog(`${metricType} retornou ${items.length} itens para ${range}`);
-        return items;
+        // Filtra apenas o tipo de métrica solicitado
+        const filtered = items.filter(m => m.metric_type === metricType);
+        debugLog(`Filtradas ${filtered.length} de ${items.length} para ${metricType}`);
+        
+        return filtered;
 
     } catch (error) {
         console.error("Erro ao carregar métricas:", error);
+        debugLog(`❌ Erro: ${error.message}`);
         return [];
     }
 }
@@ -107,13 +153,20 @@ async function loadMetrics(hostId, range, metricType) {
 function renderChartWithEMA(canvasId, label, labels, values, colorLine, colorEMA, range) {
     const canvas = document.getElementById(canvasId);
 
-    // Destroi gráfico anterior completamente
+    // Destroi gráfico anterior
     if (canvas.chartInstance) {
         canvas.chartInstance.destroy();
         canvas.chartInstance = null;
     }
 
-    debugLog(`Renderizando ${label} com ${values.length} pontos para intervalo ${range}`);
+    debugLog(`Renderizando ${label} com ${values.length} pontos`);
+
+    if (values.length === 0) {
+        debugLog(`❌ Sem dados para renderizar ${label}`);
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        return;
+    }
 
     const emaValues = calculateEMA(values);
 
@@ -124,9 +177,9 @@ function renderChartWithEMA(canvasId, label, labels, values, colorLine, colorEMA
     } else if (range === '24h') {
         maxTicksLimit = 50;
     } else if (range === '6h') {
-        maxTicksLimit = 40;  // 6h = ~360 pontos (6 × 60)
+        maxTicksLimit = 40;
     } else if (range === '1h') {
-        maxTicksLimit = 25;  // 1h = ~60 pontos
+        maxTicksLimit = 25;
     }
 
     // Configuração do gráfico
@@ -187,62 +240,49 @@ function renderChartWithEMA(canvasId, label, labels, values, colorLine, colorEMA
             },
             plugins: {
                 legend: {
-		    position: 'top',
-		    labels: {
-			usePointStyle: false,  // ← NÃO usar círculo
-			padding: 20,
-
-			generateLabels(chart) {
-			    const labels = Chart.defaults.plugins.legend.labels.generateLabels(chart);
-
-			    labels.forEach(label => {
-				const ds = chart.data.datasets[label.datasetIndex];
-
-				// Se for EMA → mostra caixinha tracejada
-				if (ds.label.includes("(EMA)")) {
-				    label.lineWidth = 2;
-				    label.strokeStyle = ds.borderColor;
-				    label.fillStyle = "transparent";
-				    label.lineDash = [6, 4];   // ← tracejado
-				    label.pointStyle = false;  // ← remove bolinha
-				} else {
-				    // Linha real volta ao padrão
-				    label.lineWidth = 2;
-				    label.strokeStyle = ds.borderColor;
-				    label.fillStyle = ds.borderColor;
-				    label.lineDash = [];
-				    label.pointStyle = false;
-				}
-			    });
-
-			    return labels;
-			}
-		    }
-		},
+                    position: 'top',
+                    labels: {
+                        usePointStyle: false,
+                        padding: 20,
+                        generateLabels(chart) {
+                            const labels = Chart.defaults.plugins.legend.labels.generateLabels(chart);
+                            labels.forEach(label => {
+                                const ds = chart.data.datasets[label.datasetIndex];
+                                if (ds.label.includes("(EMA)")) {
+                                    label.lineWidth = 2;
+                                    label.strokeStyle = ds.borderColor;
+                                    label.fillStyle = "transparent";
+                                    label.lineDash = [6, 4];
+                                    label.pointStyle = false;
+                                } else {
+                                    label.lineWidth = 2;
+                                    label.strokeStyle = ds.borderColor;
+                                    label.fillStyle = ds.borderColor;
+                                    label.lineDash = [];
+                                    label.pointStyle = false;
+                                }
+                            });
+                            return labels;
+                        }
+                    }
+                },
                 zoom: {
                     limits: {
-                        x: {
-                            min: 0,
-                            max: labels.length - 1,
-                            minRange: 5 
-                        },
-                        y: {
-                            min: 0,
-                            max: 100
-                        }
+                        x: {min: 0, max: labels.length - 1, minRange: 5},
+                        y: {min: 0, max: 100}
                     },
                     pan: {
-                        enabled: true,   
-                        mode: 'x',       
-                        threshold: 10,   
+                        enabled: true,
+                        mode: 'x',
+                        threshold: 10,
                     },
                     zoom: {
                         wheel: {
                             enabled: true,
-                            modifierKey: 'ctrl', 
+                            modifierKey: 'ctrl',
                         },
                         pinch: {
-                            enabled: true 
+                            enabled: true
                         },
                         mode: 'x',
                     }
@@ -255,11 +295,13 @@ function renderChartWithEMA(canvasId, label, labels, values, colorLine, colorEMA
     canvas.addEventListener('mousedown', () => canvas.style.cursor = "grabbing");
     canvas.addEventListener('mouseup', () => canvas.style.cursor = "grab");
     canvas.addEventListener('mouseout', () => canvas.style.cursor = "grab");
+    
+    debugLog(`✅ Gráfico ${label} renderizado com sucesso`);
 }
 
 /* ===== Atualiza estatísticas ===== */
 function updateStats(elementId, values) {
-    if (!values.length) {
+    if (!values || values.length === 0) {
         document.getElementById(elementId).textContent = "Sem dados";
         return;
     }
@@ -272,7 +314,7 @@ function updateStats(elementId, values) {
         `Média: ${avg}% | Máx: ${max}% | Mín: ${min}%`;
 }
 
-/* ===== PRINCIPAL: Carrega dashboard com diferenciação correta de intervalos ===== */
+/* ===== PRINCIPAL: Carrega dashboard ===== */
 async function loadDashboard() {
     const hostSelect = document.getElementById("hostSelect");
     const rangeSelect = document.getElementById("rangeSelect");
@@ -280,59 +322,50 @@ async function loadDashboard() {
     const hostId = hostSelect.value;
     const range = rangeSelect.value;
 
-    if (!hostId) return;
-
-    // Verifica se o intervalo realmente mudou
-    if (lastLoadedRange === range && lastLoadedRange !== null) {
-        debugLog(`⚠️ AVISO: Intervalo ${range} já estava carregado! Forçando recarga...`);
+    if (!hostId) {
+        debugLog("Nenhum host selecionado");
+        return;
     }
 
-    lastLoadedRange = range;
     debugLog(`========================================`);
-    debugLog(`Atualizando dashboard: Host=${hostId}, Range=${range}`);
+    debugLog(`Carregando: Host=${hostId}, Range=${range}`);
     debugLog(`========================================`);
 
-    // ===== CPU =====
+    // Carrega CPU
     const cpu = await loadMetrics(hostId, range, "cpu_percent");
     
     if (cpu && cpu.length > 0) {
         const labels = cpu.map(c => formatTimestamp(c.timestamp, range));
         const values = cpu.map(c => Number(c.value));
 
-        debugLog(`✅ CPU carregou: ${cpu.length} pontos`);
-        debugLog(`   Primeiro: ${labels[0]} = ${values[0]}%`);
-        debugLog(`   Último: ${labels[labels.length-1]} = ${values[values.length-1]}%`);
-
+        debugLog(`✅ CPU: ${cpu.length} métricas carregadas`);
         renderChartWithEMA("cpuChart", "CPU (%)", labels, values, "#F44336", "#FF9800", range);
         updateStats("cpuStats", values);
     } else {
-        debugLog(`❌ CPU: Nenhum dado retornado!`);
+        debugLog(`❌ CPU: Sem dados`);
         const ctx = document.getElementById("cpuChart");
         if(ctx.chartInstance) ctx.chartInstance.destroy();
         document.getElementById("cpuStats").textContent = "Sem dados para este intervalo";
     }
 
-    // ===== MEMÓRIA =====
+    // Carrega Memória
     const mem = await loadMetrics(hostId, range, "memory_percent");
     
     if (mem && mem.length > 0) {
         const labels = mem.map(m => formatTimestamp(m.timestamp, range));
         const values = mem.map(m => Number(m.value));
 
-        debugLog(`✅ Memória carregou: ${mem.length} pontos`);
-        debugLog(`   Primeiro: ${labels[0]} = ${values[0]}%`);
-        debugLog(`   Último: ${labels[labels.length-1]} = ${values[values.length-1]}%`);
-
+        debugLog(`✅ Memória: ${mem.length} métricas carregadas`);
         renderChartWithEMA("memoryChart", "Memória RAM (%)", labels, values, "#2196F3", "#00BCD4", range);
         updateStats("memoryStats", values);
     } else {
-        debugLog(`❌ Memória: Nenhum dado retornado!`);
+        debugLog(`❌ Memória: Sem dados`);
         const ctx = document.getElementById("memoryChart");
         if(ctx.chartInstance) ctx.chartInstance.destroy();
         document.getElementById("memoryStats").textContent = "Sem dados para este intervalo";
     }
 
-    debugLog(`Dashboard atualizado com sucesso!`);
+    debugLog(`Dashboard atualizado!`);
 }
 
 /* ===== Exportar PDF / XLSX ===== */
@@ -359,33 +392,31 @@ function resetZoom(canvasId) {
 
 /* ===== INICIALIZAÇÃO ===== */
 document.addEventListener("DOMContentLoaded", async () => {
-    debugLog(`Iniciando aplicação...`);
+    debugLog(`Iniciando dashboard...`);
     
     await loadHosts();
     debugLog(`Hosts carregados`);
     
-    // Aguarda um pouco para garantir que os hosts foram carregados
+    // Aguarda um pouco
     setTimeout(() => {
         loadDashboard();
     }, 500);
 
     document.getElementById("hostSelect").addEventListener("change", () => {
-        debugLog(`🔄 Host alterado`);
-        lastLoadedRange = null; // Reset para forçar recarga
+        debugLog(`Host alterado`);
         loadDashboard();
     });
     
     document.getElementById("rangeSelect").addEventListener("change", () => {
-        debugLog(`🔄 Intervalo alterado`);
-        lastLoadedRange = null; // Reset para forçar recarga completa
+        debugLog(`Range alterado`);
         loadDashboard();
     });
 
     // Atualiza a cada 60 segundos
     setInterval(() => {
-        lastLoadedRange = null; // Reset para forçar recarga
+        debugLog(`Auto-atualização (60s)`);
         loadDashboard();
     }, 60000);
 
-    debugLog(`Aplicação inicializada com sucesso`);
+    debugLog(`Dashboard pronto!`);
 });
