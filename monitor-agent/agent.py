@@ -7,12 +7,11 @@ import json
 import os
 from datetime import datetime, timezone
 import argparse
-import platform
 import uuid
 from pathlib import Path
 
 AGENT_ID_FILE = "/var/lib/monitor-agent/agent_id.txt"
-PENDING_QUEUE_FILE = "/var/lib/monitor-agent/pending_metrics.json"  # ← NOVO
+PENDING_QUEUE_FILE = "/var/lib/monitor-agent/pending_metrics.json"
 
 def ensure_directories():
     Path("/var/lib/monitor-agent").mkdir(parents=True, exist_ok=True)
@@ -45,8 +44,6 @@ def collect_sample():
     memory_percent = psutil.virtual_memory().percent
     return cpu_percent, memory_percent
 
-# ===== NOVO: Gerenciar fila em disco =====
-
 def load_pending_from_disk():
     """Carrega métricas não enviadas do arquivo no disco."""
     if os.path.exists(PENDING_QUEUE_FILE):
@@ -67,7 +64,7 @@ def save_pending_to_disk(pending):
         with open(PENDING_QUEUE_FILE, "w") as f:
             json.dump(pending, f)
             if pending:
-                print(f"[DISCO] {len(pending)} métricas guardadas no arquivo")
+                print(f"[DISCO] {len(pending)} métricas guardadas no arquivo (safety backup)")
     except Exception as e:
         print(f"[ERRO] Falha ao salvar fila em disco: {e}")
 
@@ -94,7 +91,7 @@ def send_to_api(api_url, metrics):
     try:
         resp = requests.post(api_url, json=metrics, timeout=5)
         if resp.status_code in (200, 201):
-            print(f"[OK] Enviado {len(metrics)} métricas")
+            print(f"[OK] Enviado {len(metrics)} métricas em bloco")
             return True
         print(f"[ERRO] API {resp.status_code}: {resp.text}")
         return False
@@ -102,7 +99,7 @@ def send_to_api(api_url, metrics):
         print(f"[FALHA] {e}")
         return False
 
-def run_loop(api_url, hostname=None, interval=60):
+def run_loop(api_url, hostname=None, interval=60, batch_interval=3600, disk_interval=600):
     if hostname is None:
         hostname = socket.gethostname()
 
@@ -112,11 +109,18 @@ def run_loop(api_url, hostname=None, interval=60):
     print(f"[AGENTE] Iniciado para {hostname}")
     print(f"[IP REAL] {real_ip}")
     print(f"[ID] {machine_id}")
-    print(f"[Intervalo] {interval}s")
+    print(f"[Intervalo Coleta] {interval}s")
+    print(f"[Intervalo Envio] {batch_interval}s (bloco {'por hora' if batch_interval == 3600 else 'para teste'})")
+    print(f"[Backup Disco] A cada {disk_interval}s")
     print(f"[FILA DISCO] {PENDING_QUEUE_FILE}")
 
-    # ===== NOVO: Carregar fila do disco ao iniciar =====
+    # Carrega fila do disco ao iniciar
     pending = load_pending_from_disk()
+    
+    # Buffer em RAM para acumular bloco
+    hourly_buffer = []
+    last_send_time = time.time()
+    last_disk_save_time = time.time()
 
     while True:
         current_ip = get_real_ip()
@@ -125,32 +129,93 @@ def run_loop(api_url, hostname=None, interval=60):
         ts = datetime.now(timezone.utc).isoformat()
 
         batch = format_metric(hostname, current_ip, ts, cpu, mem)
-
+        
         print(f"[{datetime.now().strftime('%H:%M:%S')}] IP={current_ip} CPU={cpu:.1f}% MEM={mem:.1f}%")
 
-        # Junta buffer antigo + métrica nova
-        to_send = pending + batch
-        ok = send_to_api(api_url, to_send)
-
-        if ok:
-            pending = []  # Limpa fila em memória
-            # ===== NOVO: Apagar arquivo de fila após sucesso =====
-            if os.path.exists(PENDING_QUEUE_FILE):
-                os.remove(PENDING_QUEUE_FILE)
-                print("[DISCO] Arquivo de fila removido após sucesso")
-        else:
-            print("[BUFFER] Guardando métricas não enviadas")
-            pending += batch
-            # ===== NOVO: Persist para disco =====
-            save_pending_to_disk(pending)
+        # Adiciona ao buffer horário
+        hourly_buffer.extend(batch)
+        
+        # Verifica se passou o intervalo de envio para enviar bloco
+        current_time = time.time()
+        if current_time - last_send_time >= batch_interval:
+            print(f"[BATCH] Enviando bloco de {len(hourly_buffer)} métricas acumuladas...")
+            
+            # Junta buffer de disco (se houver) + buffer horário
+            to_send = pending + hourly_buffer
+            
+            ok = send_to_api(api_url, to_send)
+            
+            if ok:
+                hourly_buffer = []
+                pending = []
+                # Deleta arquivo de fila após sucesso
+                if os.path.exists(PENDING_QUEUE_FILE):
+                    os.remove(PENDING_QUEUE_FILE)
+                    print("[DISCO] Arquivo de fila removido após sucesso")
+                last_send_time = current_time
+            else:
+                print("[BUFFER] Falha ao enviar, aguardando próxima tentativa...")
+        
+        # Salva em disco como safety (proteção)
+        if current_time - last_disk_save_time >= disk_interval:
+            combined = pending + hourly_buffer
+            if combined:
+                save_pending_to_disk(combined)
+            last_disk_save_time = current_time
 
         time.sleep(interval)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--api", required=True)
-    parser.add_argument("--hostname", default=None)
-    parser.add_argument("--interval", type=int, default=60)
-    a = parser.parse_args()
+    parser = argparse.ArgumentParser(
+        description="Monitor Agent - Coleta CPU e Memória com envio em blocos"
+    )
+    parser.add_argument(
+        "--api",
+        required=True,
+        help="URL da API Django (ex: http://localhost:8000/api/metrics/ingest/)"
+    )
+    parser.add_argument(
+        "--hostname",
+        default=None,
+        help="Nome do host (padrão: hostname do sistema)"
+    )
+    parser.add_argument(
+        "--interval",
+        type=int,
+        default=60,
+        help="Intervalo de coleta em segundos (padrão: 60)"
+    )
+    parser.add_argument(
+        "--batch-interval",
+        type=int,
+        default=3600,
+        help="Intervalo de envio em blocos em segundos (padrão: 3600 = 1 hora)"
+    )
+    parser.add_argument(
+        "--disk-interval",
+        type=int,
+        default=600,
+        help="Intervalo de backup em disco em segundos (padrão: 600 = 10 minutos)"
+    )
+    parser.add_argument(
+        "--test",
+        action="store_true",
+        help="Modo de teste: batch-interval=60s, disk-interval=15s, interval=10s"
+    )
+    
+    args = parser.parse_args()
+    
+    # Se modo teste, sobrescrever intervalos
+    if args.test:
+        args.batch_interval = 60
+        args.disk_interval = 15
+        args.interval = 10
+        print("[TEST MODE] Intervalos reduzidos para testes rápidos\n")
 
-    run_loop(api_url=a.api, hostname=a.hostname, interval=a.interval)
+    run_loop(
+        api_url=args.api,
+        hostname=args.hostname,
+        interval=args.interval,
+        batch_interval=args.batch_interval,
+        disk_interval=args.disk_interval
+    )
